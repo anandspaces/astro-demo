@@ -56,6 +56,41 @@ def _mock_reading(user_message, chart_slice, planner_json):
     return f"{body}\n\n{hook}"
 
 
+def _mock_chunks(text):
+    """Yield a mock reading word-by-word so the UI can stream it."""
+    words = text.split(" ")
+    for i in range(0, len(words), 2):
+        yield " ".join(words[i:i + 2]) + " "
+
+
+def stream_generator(user_message, chart_slice, planner_json, history, on_token):
+    """Stream the reading, calling on_token(delta) per chunk. Returns full text."""
+    if llm.is_mock():
+        full = _mock_reading(user_message, chart_slice, planner_json)
+        for chunk in _mock_chunks(full):
+            on_token(chunk)
+        return full
+
+    user = build_generator_input(user_message, chart_slice, planner_json)
+    system = STARSAGE_SYSTEM_PROMPT
+    parts_tokens = _estimate_tokens(system) + _estimate_tokens(user) + sum(_estimate_tokens(h["content"]) for h in history)
+    if parts_tokens > 7000:
+        history = history[-4:]
+        user = build_generator_input(user_message, chart_slice, planner_json, minimal=True)
+
+    acc = []
+    try:
+        for delta in llm.stream_llm("quality", system, history, user, temp=0.75, max_tokens=900):
+            acc.append(delta)
+            on_token(delta)
+        return "".join(acc)
+    except Exception:
+        # Fall back to a single non-streamed call.
+        text = run_generator(user_message, chart_slice, planner_json, history)
+        on_token(text)
+        return text
+
+
 def run_generator(user_message, chart_slice, planner_json, history, rewrite_instruction=None):
     if llm.is_mock():
         return _mock_reading(user_message, chart_slice, planner_json)

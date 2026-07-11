@@ -143,3 +143,56 @@ def call_llm_with_history(tier, system, history, user, temp=0.7, max_tokens=800)
     """Call with prior turns. `history` is a list of {role, content}."""
     messages = list(history) + [{"role": "user", "content": user}]
     return _dispatch(tier, system, messages, temp, max_tokens)
+
+
+# ---- streaming ------------------------------------------------------------
+def _stream_claude(model, system, messages, temp, max_tokens):
+    import anthropic
+    client = anthropic.Anthropic(api_key=_key_for("claude"))
+    with client.messages.stream(model=model, system=system, messages=messages,
+                                 temperature=temp, max_tokens=max_tokens) as stream:
+        for text in stream.text_stream:
+            yield text
+
+
+def _stream_gpt(model, system, messages, temp, max_tokens):
+    from openai import OpenAI
+    client = OpenAI(api_key=_key_for("gpt"))
+    msgs = [{"role": "system", "content": system}] + messages
+    stream = client.chat.completions.create(
+        model=model, messages=msgs, temperature=temp, max_tokens=max_tokens, stream=True)
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
+
+
+def _stream_gemini(model, system, messages, temp, max_tokens):
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=_key_for("gemini"))
+    contents = [
+        {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+        for m in messages
+    ]
+    # Give headroom so thinking tokens don't starve the streamed answer.
+    stream = client.models.generate_content_stream(
+        model=model, contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system, temperature=temp, max_output_tokens=max_tokens + 4096),
+    )
+    for chunk in stream:
+        if chunk.text:
+            yield chunk.text
+
+
+_STREAM = {"claude": _stream_claude, "gpt": _stream_gpt, "gemini": _stream_gemini}
+
+
+def stream_llm(tier, system, history, user, temp=0.7, max_tokens=800):
+    """Yield text deltas from the model. Raises in mock mode (callers handle mock)."""
+    provider = resolve_provider()
+    if provider == "mock":
+        raise RuntimeError("stream_llm called in mock mode — callers should check is_mock() first.")
+    messages = list(history) + [{"role": "user", "content": user}]
+    yield from _STREAM[provider](MODELS[provider][tier], system, messages, temp, max_tokens)
