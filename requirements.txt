@@ -1,0 +1,8 @@
+# Core engine
+pyswisseph>=2.10
+pytz>=2023.3
+
+# LLM providers (install only the one(s) you use; the switch lazy-imports)
+anthropic>=0.40        # STARSAGE_PROVIDER=claude
+openai>=1.40           # STARSAGE_PROVIDER=gpt
+google-genai>=0.3      # STARSAGE_PROVIDER=gemini
