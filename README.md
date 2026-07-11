@@ -33,6 +33,18 @@ python main.py chat --user <user_id> --message "When will I get a promotion?"
 python main.py chart --user <user_id>        # dump the full natal chart JSON
 ```
 
+## Web test console
+
+A zero-dependency browser UI (stdlib HTTP server) to exercise signup → chart → chat:
+
+```bash
+python server.py            # -> http://localhost:8765
+```
+
+Signup computes a chart, "View chart" shows planets/dashas/yogas, and the chat box takes
+questions with a **live provider dropdown** (gemini / claude / gpt / mock). Static files live in
+`web/`; the server wraps the same pipeline as the CLI (`server.py`).
+
 ## LLM provider switch
 
 Runs in **mock mode** by default (deterministic, no network, no keys) so the whole
