@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StarSage · Test Console</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="stars" aria-hidden="true"></div>
+
+  <header>
+    <div class="brand"><span class="logo">✦</span> StarSage <span class="sub">test console</span></div>
+    <div id="provider" class="pill"><span class="dot"></span> connecting…</div>
+  </header>
+
+  <main>
+    <!-- LEFT: user + chart -->
+    <aside class="panel">
+      <section class="card" id="signupCard">
+        <h2><span class="num">1</span> Birth details</h2>
+        <div class="grid">
+          <label>Name<input id="name" value="Asha"></label>
+          <label>Date of birth<input id="dob" type="date" value="1992-06-20"></label>
+          <label>Time of birth<input id="tob" type="time" value="14:15"></label>
+          <label>Place<input id="pob" value="Mumbai, India"></label>
+          <label>Timezone<input id="tz" value="Asia/Kolkata"></label>
+          <label>Lat <span class="opt">opt</span><input id="lat" placeholder="auto"></label>
+          <label>Lon <span class="opt">opt</span><input id="lon" placeholder="auto"></label>
+        </div>
+        <button id="signup" class="primary"><span>Compute chart</span> →</button>
+        <div id="signupOut" class="out"></div>
+      </section>
+
+      <section class="card" id="chartCard">
+        <h2><span class="num">2</span> Chart <span class="muted" id="activeUser"></span></h2>
+        <div class="row tight">
+          <input id="loadUser" placeholder="paste user_id to load">
+          <button id="loadBtn" class="ghost sm">Load</button>
+          <button id="chartBtn" class="ghost sm">View</button>
+        </div>
+        <div id="chartOut" class="out"></div>
+      </section>
+    </aside>
+
+    <!-- RIGHT: chat -->
+    <section class="card chatcard">
+      <div class="chathead">
+        <h2><span class="num">3</span> Ask StarSage</h2>
+        <label class="inline">Model
+          <select id="provSel">
+            <option value="">.env default</option>
+            <option value="gemini">gemini</option>
+            <option value="claude">claude</option>
+            <option value="gpt">gpt</option>
+            <option value="mock">mock · instant</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="chips">
+        <button class="chip" data-q="When will my career take off?">career timing</button>
+        <button class="chip" data-q="What do the planets say about my marriage prospects?">relationship</button>
+        <button class="chip" data-q="How will my year ahead look?">forecast</button>
+        <button class="chip" data-q="yes, tell me more">follow-up</button>
+      </div>
+
+      <div id="chat" class="chat"></div>
+
+      <form id="chatForm" class="composer">
+        <input id="msg" placeholder="Ask about career, marriage, wealth, the year ahead…" autocomplete="off">
+        <button id="send" class="primary send" aria-label="Send">➤</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
