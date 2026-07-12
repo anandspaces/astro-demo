@@ -138,7 +138,53 @@ code { background: rgba(0,0,0,.35); padding: 1px 6px; border-radius: 5px; font-s
 .err { color: var(--bad); }
 .ok { color: var(--ok); }
 
+/* header right cluster */
+.headright { display: flex; align-items: center; gap: 12px; }
+
+/* ===================== model & api-key popup ===================== */
+.modalwrap {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  padding: 20px; background: rgba(6,7,13,.62); backdrop-filter: blur(4px);
+  animation: fade .18s ease both;
+}
+.modalwrap[hidden] { display: none; }
+@keyframes fade { from { opacity: 0; } }
+.modal {
+  width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+  animation: rise .28s cubic-bezier(.2,.8,.2,1) both;
+}
+.modalhead { display: flex; align-items: center; justify-content: space-between; }
+.modal .small { font-size: 12px; margin: 6px 0 18px; }
+.iconbtn { background: rgba(255,255,255,.05); color: var(--muted); border: 1px solid var(--edge); width: 30px; height: 30px; border-radius: 9px; padding: 0; font-size: 13px; }
+.iconbtn:hover { color: var(--ink); border-color: var(--accent); }
+.modalbody { display: grid; gap: 22px; }
+.field .fieldlabel { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px; }
+
+.provgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+.provcard {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  background: rgba(255,255,255,.03); border: 1px solid var(--edge); border-radius: 12px;
+  padding: 11px 12px; text-align: left; transition: border-color .15s, background .15s, transform .12s;
+}
+.provcard:hover { border-color: var(--accent); }
+.provcard.active { border-color: var(--accent); background: rgba(167,139,250,.14); box-shadow: 0 0 0 1px var(--accent) inset; }
+.provcard .pname { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.provcard .pmodel { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+.keyrows { display: grid; gap: 14px; }
+.keyrow .keytop { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.keyrow .klabel { font-size: 12.5px; font-weight: 600; }
+.grow { flex: 1; min-width: 0; }
+.kstate { font-size: 11px; }
+.kstate.ok { color: var(--ok); }
+.kstate.warn { color: var(--accent2); }
+.kstate.muted { color: var(--muted); }
+.modalfoot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 22px; }
+.modalfoot .out { margin: 0; flex: 1; }
+.block { width: 100%; }
+
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; }
   .chatcard { min-height: 520px; }
+  .provgrid { grid-template-columns: repeat(2, 1fr); }
 }

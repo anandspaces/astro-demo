@@ -21,10 +21,91 @@ async function loadProvider() {
   try {
     const p = await api("/api/provider");
     const keys = Object.entries(p.keys).filter(([, v]) => v).map(([k]) => k).join(", ") || "none · mock";
-    $("provider").innerHTML = `<span class="dot"></span> ${p.provider} · keys: ${keys}`;
+    $("provider").innerHTML = `<span class="dot"></span> ${esc(p.provider)} · keys: ${esc(keys)}`;
     $("provider").classList.add("live");
   } catch { $("provider").innerHTML = `<span class="dot"></span> offline`; }
 }
+
+/* ===================== MODEL & API-KEY POPUP ===================== */
+const PROV_LABEL = { claude: "Claude", gpt: "GPT", gemini: "Gemini", mock: "Mock" };
+const KEY_LABEL = { claude: "Anthropic API key", gpt: "OpenAI API key", gemini: "Google / Gemini API key" };
+let settings = null;
+let pendingProvider = "";
+const pendingKeys = {};   // provider -> raw string (set) or null (clear)
+
+$("openSettings").onclick = async () => {
+  try { await loadSettings(); $("settingsModal").hidden = false; }
+  catch (e) { alert("Could not load settings: " + e.message); }
+};
+$("closeSettings").onclick = () => { $("settingsModal").hidden = true; };
+$("settingsModal").onclick = (e) => { if (e.target === $("settingsModal")) $("settingsModal").hidden = true; };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("settingsModal").hidden = true; });
+
+async function loadSettings() {
+  settings = await api("/api/settings");
+  pendingProvider = settings.provider || "";
+  for (const k in pendingKeys) delete pendingKeys[k];
+  renderSettings();
+}
+
+function renderSettings() {
+  const provs = settings.providers || ["claude", "gpt", "gemini", "mock"];
+  $("providerCards").innerHTML = provs.map(p => {
+    const m = settings.models?.[p];
+    const sub = p === "mock" ? "instant · no key" : (m ? esc(m.quality) : "");
+    const active = pendingProvider === p ? " active" : "";
+    return `<button type="button" class="provcard${active}" data-p="${p}">
+      <span class="pname">${PROV_LABEL[p] || p}</span>
+      <span class="pmodel muted">${sub}</span></button>`;
+  }).join("");
+  $("providerCards").querySelectorAll(".provcard").forEach(el => el.onclick = () => {
+    pendingProvider = el.dataset.p; renderSettings();
+  });
+
+  $("keyRows").innerHTML = ["claude", "gpt", "gemini"].map(p => {
+    const k = settings.keys?.[p] || {};
+    const pending = pendingKeys[p];
+    let status;
+    if (pending === null) status = `<span class="kstate warn">will clear on save</span>`;
+    else if (typeof pending === "string") status = `<span class="kstate ok">new key entered</span>`;
+    else if (k.set) status = `<span class="kstate ok">stored · ${esc(k.hint)}</span>`;
+    else status = `<span class="kstate muted">not set</span>`;
+    return `<div class="keyrow">
+      <div class="keytop"><span class="klabel">${KEY_LABEL[p]}</span>${status}</div>
+      <div class="row tight">
+        <input type="password" class="grow keyinput" data-p="${p}" placeholder="${k.set ? "•••••• stored — type to replace" : "paste key to enable " + PROV_LABEL[p]}" autocomplete="off">
+        <button type="button" class="ghost sm keyclear" data-p="${p}" ${k.set || pending ? "" : "disabled"}>Clear</button>
+      </div></div>`;
+  }).join("");
+
+  $("keyRows").querySelectorAll(".keyinput").forEach(inp => inp.oninput = () => {
+    const p = inp.dataset.p;
+    if (inp.value.trim()) pendingKeys[p] = inp.value.trim();
+    else delete pendingKeys[p];
+  });
+  $("keyRows").querySelectorAll(".keyclear").forEach(btn => btn.onclick = () => {
+    pendingKeys[btn.dataset.p] = null; renderSettings();
+  });
+}
+
+$("saveSettings").onclick = async () => {
+  const btn = $("saveSettings"); btn.disabled = true;
+  const out = $("settingsOut"); out.innerHTML = "";
+  try {
+    const body = { provider: pendingProvider, keys: {} };
+    for (const p in pendingKeys) body.keys[p] = pendingKeys[p];
+    settings = await api("/api/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    for (const k in pendingKeys) delete pendingKeys[k];
+    pendingProvider = settings.provider || "";
+    renderSettings();
+    out.innerHTML = `<div class="ok">✓ saved</div>`;
+    loadProvider();
+    setTimeout(() => { out.innerHTML = ""; }, 2500);
+  } catch (e) { out.innerHTML = `<div class="err">✗ ${esc(e.message)}</div>`; }
+  btn.disabled = false;
+};
 
 /* ---------- signup ---------- */
 $("signup").onclick = async () => {

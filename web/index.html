@@ -11,7 +11,10 @@
 
   <header>
     <div class="brand"><span class="logo">✦</span> StarSage <span class="sub">test console</span></div>
-    <div id="provider" class="pill"><span class="dot"></span> connecting…</div>
+    <div class="headright">
+      <div id="provider" class="pill"><span class="dot"></span> connecting…</div>
+      <button id="openSettings" class="ghost sm">⚙ Model &amp; keys</button>
+    </div>
   </header>
 
   <main>
@@ -49,10 +52,10 @@
         <h2><span class="num">3</span> Ask StarSage</h2>
         <label class="inline">Model
           <select id="provSel">
-            <option value="">.env default</option>
-            <option value="gemini">gemini</option>
+            <option value="">saved default</option>
             <option value="claude">claude</option>
             <option value="gpt">gpt</option>
+            <option value="gemini">gemini</option>
             <option value="mock">mock · instant</option>
           </select>
         </label>
@@ -73,6 +76,34 @@
       </form>
     </section>
   </main>
+
+  <!-- ======================= MODEL & API-KEY POPUP ======================= -->
+  <div id="settingsModal" class="modalwrap" hidden>
+    <div class="modal card">
+      <div class="modalhead">
+        <h2 style="margin:0"><span class="num">⚙</span> Model &amp; API keys</h2>
+        <button id="closeSettings" class="iconbtn" aria-label="Close">✕</button>
+      </div>
+      <p class="muted small">Pick which model answers your readings and store its API key.
+        Keys are encrypted at rest and never sent back to the browser — this panel only shows a masked hint.</p>
+
+      <div class="modalbody">
+        <div class="field">
+          <div class="fieldlabel">Active model</div>
+          <div id="providerCards" class="provgrid"></div>
+        </div>
+        <div class="field">
+          <div class="fieldlabel">API keys</div>
+          <div id="keyRows" class="keyrows"></div>
+        </div>
+      </div>
+
+      <div class="modalfoot">
+        <div id="settingsOut" class="out"></div>
+        <button id="saveSettings" class="primary"><span>Save</span></button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
