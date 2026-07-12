@@ -14,11 +14,28 @@ services:
       retries: 10
     restart: unless-stopped
 
-  app:
+  # One-shot: apply Alembic migrations to the prod DB, then exit. `app` waits for
+  # this to finish successfully before starting, so the schema is always at head
+  # before the server accepts traffic (and migrations run in exactly one place).
+  migrate:
     build: .
+    image: starsage:latest
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-root}@db:5432/starsage
+    command: ["python", "src/main.py", "migrate"]
+    restart: "no"
+
+  app:
+    build: .
+    image: starsage:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-root}@db:5432/starsage
       STARSAGE_PORT: "8765"
