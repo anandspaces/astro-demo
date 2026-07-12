@@ -1,0 +1,25 @@
+# Virtualenvs / Python caches
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Local secrets & databases (never bake into the image)
+.env
+*.db
+.starsage_secret
+
+# VCS / tooling
+.git/
+.gitignore
+.claude/
+
+# Docs & tests are not needed at runtime
+docs/
+src/tests/
+
+# Docker artifacts
+Dockerfile
+.dockerignore
+docker-compose.yml
