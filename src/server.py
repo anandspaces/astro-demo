@@ -27,8 +27,12 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = ROOT
 sys.path.insert(0, SRC)
 
-import main  # noqa: E402  (loads .env, sets paths)
+import main  # noqa: E402  (loads .env, sets paths, configures logging)
+import logging  # noqa: E402
 import keystore  # noqa: E402
+from logging_setup import setup_logging  # noqa: E402
+
+log = logging.getLogger("starsage.server")
 from astro import build_natal_chart  # noqa: E402
 from db import store  # noqa: E402
 from pipeline import llm  # noqa: E402
@@ -285,6 +289,7 @@ class Handler(SimpleHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass  # client navigated away
             except Exception as e:
+                log.error("chat/stream failed: %s: %s", type(e).__name__, e, exc_info=True)
                 try:
                     emit("error", {"error": f"{type(e).__name__}: {e}"})
                 except Exception:
@@ -292,6 +297,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    setup_logging()   # idempotent; main import already configured it, this is explicit
     store.init_db()
     print(f"StarSage web UI  →  http://localhost:{PORT}")
     print(f"DB backend: {store.backend_name()} → {store.target()}")

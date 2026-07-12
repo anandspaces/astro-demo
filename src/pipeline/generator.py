@@ -1,8 +1,11 @@
 """Generator call (Part 12). Real path uses the quality model; mock path renders a
 templated reading from the plan + chart so the pipeline is fully runnable offline."""
+import logging
 import time
 
 from . import llm
+
+log = logging.getLogger("starsage.generator")
 from .format_chart import format_chart_for_generator, format_chart_minimal
 from .prompts import PIPELINE_PREAMBLE, STARSAGE_SYSTEM_PROMPT
 
@@ -106,11 +109,16 @@ def run_generator(user_message, chart_slice, planner_json, history, rewrite_inst
         history = history[-4:]
         user = build_generator_input(user_message, chart_slice, planner_json, minimal=True)
 
+    provider, model = llm.resolve_provider(), llm.model_for("quality")
     try:
         return llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
-    except Exception:
+    except Exception as e:
+        log.warning("generator LLM call failed (provider=%s model=%s), retrying: %s: %s",
+                    provider, model, type(e).__name__, e)
         time.sleep(2)
         try:
             return llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
-        except Exception:
+        except Exception as e:
+            log.error("generator LLM call failed after retry (provider=%s model=%s): %s: %s",
+                      provider, model, type(e).__name__, e, exc_info=True)
             return "StarSage is temporarily unavailable. Please try again in a moment."

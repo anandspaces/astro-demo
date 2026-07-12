@@ -51,6 +51,11 @@ def load_dotenv(path=None):
 
 load_dotenv()
 
+# Configure logging as early as possible (after .env, before anything logs).
+# server.py imports this module, so this one call covers both CLI and web server.
+from logging_setup import setup_logging      # noqa: E402
+setup_logging()
+
 from astro import build_natal_chart          # noqa: E402
 from db import store                          # noqa: E402
 from pipeline import llm                       # noqa: E402

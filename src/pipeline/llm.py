@@ -14,7 +14,10 @@ Two model tiers are used by the pipeline:
   "fast"    -> Planner / Critic
 Override any model id via env, e.g. STARSAGE_CLAUDE_QUALITY=claude-opus-4-8.
 """
+import logging
 import os
+
+log = logging.getLogger("starsage.llm")
 
 # Default model ids per provider/tier — used when the caller hasn't chosen a model.
 # The effective model is resolved at call time (model_for) so a per-request override
@@ -31,8 +34,11 @@ MODELS = {
         "key_env": ("OPENAI_API_KEY",),
     },
     "gemini": {
-        "quality": "gemini-2.5-pro",
-        "fast": "gemini-2.5-flash",
+        # "-latest" aliases track Google's current pro/flash and never 404 on
+        # deprecation (unlike pinned "-preview" ids). Pin an exact model per
+        # request via the console or STARSAGE_GEMINI_QUALITY / _FAST.
+        "quality": "gemini-pro-latest",
+        "fast": "gemini-flash-latest",
         "key_env": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     },
 }
@@ -102,9 +108,10 @@ def list_models(provider: str, api_key: str) -> list[str]:
 def _call_claude(model, system, messages, temp, max_tokens):
     import anthropic
     client = anthropic.Anthropic(api_key=_key_for("claude"))
+    # Claude 5 / Opus 4.7+ reject `temperature` (400). Steer via the prompt instead.
     resp = client.messages.create(
         model=model, system=system, messages=messages,
-        temperature=temp, max_tokens=max_tokens,
+        max_tokens=max_tokens,
     )
     return "".join(b.text for b in resp.content if b.type == "text")
 
@@ -162,7 +169,15 @@ def _dispatch(tier, system, messages, temp, max_tokens):
     provider = resolve_provider()
     if provider == "mock":
         raise RuntimeError("LLM called in mock mode — callers should check is_mock() first.")
-    return _DISPATCH[provider](model_for(tier), system, messages, temp, max_tokens)
+    model = model_for(tier)
+    log.info("LLM call: provider=%s tier=%s model=%s", provider, tier, model)
+    try:
+        return _DISPATCH[provider](model, system, messages, temp, max_tokens)
+    except Exception as e:
+        # Log the true provider error here (the caller may swallow it into a fallback).
+        log.error("LLM call failed: provider=%s model=%s -> %s: %s",
+                  provider, model, type(e).__name__, e)
+        raise
 
 
 def call_llm(tier, system, user, temp=0.7, max_tokens=800):
@@ -180,8 +195,9 @@ def call_llm_with_history(tier, system, history, user, temp=0.7, max_tokens=800)
 def _stream_claude(model, system, messages, temp, max_tokens):
     import anthropic
     client = anthropic.Anthropic(api_key=_key_for("claude"))
+    # Claude 5 / Opus 4.7+ reject `temperature` (400). Steer via the prompt instead.
     with client.messages.stream(model=model, system=system, messages=messages,
-                                 temperature=temp, max_tokens=max_tokens) as stream:
+                                 max_tokens=max_tokens) as stream:
         for text in stream.text_stream:
             yield text
 

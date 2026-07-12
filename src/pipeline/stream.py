@@ -8,7 +8,10 @@ plan → generate → critique → maybe-retry cycle.
 on_event(kind, data): kind in {"meta","stage","token","done","error"}.
   stage payloads: {"stage": "classifying|planning|writing|reviewing", "detail": str}
 """
+import logging
 from datetime import datetime
+
+log = logging.getLogger("starsage.stream")
 
 from astro.transits import calculate_timing_confidence, get_transits_for_dasha_window
 from db import store
@@ -106,6 +109,7 @@ def _stream_affirmation(user_id, session_id, message, chart, on_event):
                 on_event("token", {"text": delta})
             text = "".join(acc)
         except Exception as e:
+            log.error("affirmation stream failed: %s: %s", type(e).__name__, e, exc_info=True)
             on_event("error", {"error": str(e)})
             return
     store.save_turn(session_id, user_id, "user", message, domain)
@@ -168,4 +172,6 @@ def stream_route(user_id, session_id, message, on_event):
                             query_type=qt)
         on_event("done", {"provider": llm.resolve_provider()})
     except Exception as e:
+        log.error("stream_route failed (user=%s session=%s): %s: %s",
+                  user_id, session_id, type(e).__name__, e, exc_info=True)
         on_event("error", {"error": f"{type(e).__name__}: {e}"})
