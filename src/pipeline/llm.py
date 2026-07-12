@@ -16,22 +16,23 @@ Override any model id via env, e.g. STARSAGE_CLAUDE_QUALITY=claude-opus-4-8.
 """
 import os
 
-# Default model ids per provider/tier. The spec's `claude-sonnet-4-6` was invalid;
-# these are current, and each is overridable via env.
+# Default model ids per provider/tier — used when the caller hasn't chosen a model.
+# The effective model is resolved at call time (model_for) so a per-request override
+# via STARSAGE_<PROVIDER>_<TIER> (set from the console's stored settings) takes effect.
 MODELS = {
     "claude": {
-        "quality": os.environ.get("STARSAGE_CLAUDE_QUALITY", "claude-sonnet-5"),
-        "fast": os.environ.get("STARSAGE_CLAUDE_FAST", "claude-haiku-4-5"),
+        "quality": "claude-sonnet-5",
+        "fast": "claude-haiku-4-5",
         "key_env": ("ANTHROPIC_API_KEY",),
     },
     "gpt": {
-        "quality": os.environ.get("STARSAGE_GPT_QUALITY", "gpt-4o"),
-        "fast": os.environ.get("STARSAGE_GPT_FAST", "gpt-4o-mini"),
+        "quality": "gpt-4o",
+        "fast": "gpt-4o-mini",
         "key_env": ("OPENAI_API_KEY",),
     },
     "gemini": {
-        "quality": os.environ.get("STARSAGE_GEMINI_QUALITY", "gemini-2.5-pro"),
-        "fast": os.environ.get("STARSAGE_GEMINI_FAST", "gemini-2.5-flash"),
+        "quality": "gemini-2.5-pro",
+        "fast": "gemini-2.5-flash",
         "key_env": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     },
 }
@@ -60,10 +61,41 @@ def is_mock() -> bool:
 
 
 def model_for(tier: str) -> str:
+    """Effective model for a tier: a per-request env override
+    (STARSAGE_<PROVIDER>_<TIER>, e.g. STARSAGE_CLAUDE_QUALITY) wins, else the default."""
     provider = resolve_provider()
     if provider == "mock":
         return "mock"
-    return MODELS[provider][tier]
+    override = os.environ.get(f"STARSAGE_{provider.upper()}_{tier.upper()}")
+    return override or MODELS[provider][tier]
+
+
+def list_models(provider: str, api_key: str) -> list[str]:
+    """Live model ids from the provider's official API, using the given key. Raises
+    on auth/network errors so the caller can fall back to a curated list."""
+    if provider == "claude":
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        return [m.id for m in client.models.list(limit=1000).data]
+    if provider == "gpt":
+        import re
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        ids = [m.id for m in client.models.list().data]
+        # keep chat-capable families; drop embeddings/audio/image/etc.
+        keep = [i for i in ids if i.startswith(("gpt", "chatgpt")) or re.match(r"^o\d", i)]
+        return sorted(keep)
+    if provider == "gemini":
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        out = []
+        for m in client.models.list():
+            short = (getattr(m, "name", "") or "").split("/")[-1]
+            actions = getattr(m, "supported_actions", None) or []
+            if short.startswith("gemini") and (not actions or "generateContent" in actions):
+                out.append(short)
+        return sorted(set(out))
+    return []
 
 
 # ---- provider adapters ----------------------------------------------------
@@ -130,8 +162,7 @@ def _dispatch(tier, system, messages, temp, max_tokens):
     provider = resolve_provider()
     if provider == "mock":
         raise RuntimeError("LLM called in mock mode — callers should check is_mock() first.")
-    model = MODELS[provider][tier]
-    return _DISPATCH[provider](model, system, messages, temp, max_tokens)
+    return _DISPATCH[provider](model_for(tier), system, messages, temp, max_tokens)
 
 
 def call_llm(tier, system, user, temp=0.7, max_tokens=800):
@@ -195,4 +226,4 @@ def stream_llm(tier, system, history, user, temp=0.7, max_tokens=800):
     if provider == "mock":
         raise RuntimeError("stream_llm called in mock mode — callers should check is_mock() first.")
     messages = list(history) + [{"role": "user", "content": user}]
-    yield from _STREAM[provider](MODELS[provider][tier], system, messages, temp, max_tokens)
+    yield from _STREAM[provider](model_for(tier), system, messages, temp, max_tokens)
