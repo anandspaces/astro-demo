@@ -108,10 +108,13 @@ def list_models(provider: str, api_key: str) -> list[str]:
 def _call_claude(model, system, messages, temp, max_tokens):
     import anthropic
     client = anthropic.Anthropic(api_key=_key_for("claude"))
-    # Claude 5 / Opus 4.7+ reject `temperature` (400). Steer via the prompt instead.
+    # Claude 5 / Opus 4.7+ reject `temperature` (400) — steer via the prompt.
+    # Disable thinking: it is ON by default on Claude 5 and its tokens count against
+    # max_tokens, so a heavy prompt can spend the whole budget thinking and return an
+    # empty completion (stop_reason=max_tokens, zero text).
     resp = client.messages.create(
         model=model, system=system, messages=messages,
-        max_tokens=max_tokens,
+        max_tokens=max_tokens, thinking={"type": "disabled"},
     )
     return "".join(b.text for b in resp.content if b.type == "text")
 
@@ -201,9 +204,10 @@ def call_llm_with_history(tier, system, history, user, temp=0.7, max_tokens=800)
 def _stream_claude(model, system, messages, temp, max_tokens):
     import anthropic
     client = anthropic.Anthropic(api_key=_key_for("claude"))
-    # Claude 5 / Opus 4.7+ reject `temperature` (400). Steer via the prompt instead.
+    # Claude 5 / Opus 4.7+ reject `temperature` (400); disable thinking so its tokens
+    # don't consume the whole max_tokens budget and starve the streamed answer.
     with client.messages.stream(model=model, system=system, messages=messages,
-                                 max_tokens=max_tokens) as stream:
+                                 max_tokens=max_tokens, thinking={"type": "disabled"}) as stream:
         for text in stream.text_stream:
             yield text
 
