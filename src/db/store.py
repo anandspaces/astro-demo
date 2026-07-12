@@ -43,19 +43,22 @@ def _row(obj, *cols):
     return {c: getattr(obj, c) for c in cols} if obj else None
 
 
-# ---- app settings (provider + encrypted keys) -----------------------------
+# ---- app settings (provider + encrypted keys + chosen model) --------------
 def get_settings():
     """Return the singleton settings row as a dict (empty dict if unset)."""
     with Session() as s:
         return _row(s.get(AppSettings, SETTINGS_ID), "provider",
-                    "claude_key_enc", "gpt_key_enc", "gemini_key_enc", "updated_at") or {}
+                    "claude_key_enc", "gpt_key_enc", "gemini_key_enc",
+                    "claude_model", "gpt_model", "gemini_model", "updated_at") or {}
 
 
-def save_settings(provider=None, key_enc_by_provider=None):
+def save_settings(provider=None, key_enc_by_provider=None, model_by_provider=None):
     """Upsert settings. `provider` sets the active provider when given (not None);
     each entry in `key_enc_by_provider` ({provider: enc_or_None}) overwrites that
-    provider's stored key (None clears it; an absent provider is left unchanged)."""
-    col = {"claude": "claude_key_enc", "gpt": "gpt_key_enc", "gemini": "gemini_key_enc"}
+    provider's stored key (None clears it; an absent provider is left unchanged);
+    `model_by_provider` ({provider: model_id_or_None}) sets the chosen model."""
+    key_col = {"claude": "claude_key_enc", "gpt": "gpt_key_enc", "gemini": "gemini_key_enc"}
+    model_col = {"claude": "claude_model", "gpt": "gpt_model", "gemini": "gemini_model"}
     with Session.begin() as s:
         row = s.get(AppSettings, SETTINGS_ID)
         if row is None:
@@ -64,8 +67,11 @@ def save_settings(provider=None, key_enc_by_provider=None):
         if provider is not None:
             row.provider = provider
         for prov, enc in (key_enc_by_provider or {}).items():
-            if prov in col:
-                setattr(row, col[prov], enc)
+            if prov in key_col:
+                setattr(row, key_col[prov], enc)
+        for prov, model in (model_by_provider or {}).items():
+            if prov in model_col:
+                setattr(row, model_col[prov], model or None)
         row.updated_at = now()
 
 

@@ -24,10 +24,14 @@ class AppSettings(Base):
     plaintext."""
     __tablename__ = "app_settings"
     id: Mapped[str] = mapped_column(String, primary_key=True)     # singleton: 'global'
-    provider: Mapped[str | None] = mapped_column(String)          # claude | gpt | gemini | mock
+    provider: Mapped[str | None] = mapped_column(String)          # claude | gpt | gemini
     claude_key_enc: Mapped[str | None] = mapped_column(String)
     gpt_key_enc: Mapped[str | None] = mapped_column(String)
     gemini_key_enc: Mapped[str | None] = mapped_column(String)
+    # chosen model id per provider (nullable → use the provider default)
+    claude_model: Mapped[str | None] = mapped_column(String)
+    gpt_model: Mapped[str | None] = mapped_column(String)
+    gemini_model: Mapped[str | None] = mapped_column(String)
     updated_at: Mapped[datetime | None] = mapped_column(TS)
 
 
