@@ -52,7 +52,7 @@ _KEY_MAP = {
 _FALLBACK_MODELS = {
     "claude": ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
     "gpt": ["gpt-4o", "gpt-4o-mini", "o4-mini"],
-    "gemini": ["gemini-2.5-pro", "gemini-2.5-flash"],
+    "gemini": ["gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"],
 }
 
 
