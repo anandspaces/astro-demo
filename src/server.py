@@ -17,9 +17,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+SRC = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SRC)   # project root, holds web/ and .env
+sys.path.insert(0, SRC)
 
 import main  # noqa: E402  (loads .env, sets paths)
 from astro import build_natal_chart  # noqa: E402
@@ -95,7 +95,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _signup(self):
         b = self._body()
-        store.init_db()
         lat = float(b["lat"]) if b.get("lat") else None
         lon = float(b["lon"]) if b.get("lon") else None
         uid = store.create_user(b["name"], b["dob"], b["tob"], b["pob"], b["tz"], lat, lon)

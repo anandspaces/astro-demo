@@ -17,10 +17,11 @@ import os
 import sys
 from datetime import datetime
 
-# Make both the project root (for `db`) and src (for `astro`, `pipeline`) importable.
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+# src/ holds all app packages (astro, pipeline, db, …); the project root above it
+# holds config assets (.env, alembic.ini, web/).
+SRC = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SRC)
+sys.path.insert(0, SRC)
 
 
 def load_dotenv(path=None):
@@ -57,8 +58,21 @@ from pipeline.router import route              # noqa: E402
 
 
 def cmd_init(_):
-    store.init_db()
-    print(f"Initialised DB at {store.DB_PATH}")
+    before, after = store.init_db()
+    print(f"Backend: {store.backend_name()} → {store.target()}")
+    print(f"Schema at revision {after}" + (" (no change)" if before == after else f" (was {before})"))
+
+
+def cmd_migrate(a):
+    from db import migrate
+    print(f"Backend: {store.backend_name()} → {store.target()}")
+    if a.status:
+        s = migrate.status()
+        up_to_date = s["current"] == s["head"]
+        print(f"  current: {s['current']}\n  head:    {s['head']}\n  {'up to date' if up_to_date else 'PENDING migrations'}")
+    else:
+        before, after = migrate.upgrade()
+        print(f"upgraded: {before} → {after}" if before != after else f"already up to date at {after}")
 
 
 def cmd_signup(a):
@@ -84,7 +98,6 @@ def cmd_chart(a):
 
 
 def cmd_chat(a):
-    store.init_db()
     provider = llm.resolve_provider()
     print(f"[provider: {provider} | quality={llm.model_for('quality')} fast={llm.model_for('fast')}]")
     if a.message:
@@ -106,6 +119,10 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
+
+    mg = sub.add_parser("migrate")
+    mg.add_argument("--status", action="store_true", help="show applied vs pending instead of applying")
+    mg.set_defaults(fn=cmd_migrate)
 
     s = sub.add_parser("signup")
     s.add_argument("--name", required=True)

@@ -11,9 +11,8 @@ import sqlite3
 import sys
 from datetime import date, datetime
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project src/ root
+sys.path.insert(0, SRC)
 
 from db import store   # noqa: E402
 

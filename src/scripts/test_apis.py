@@ -13,9 +13,8 @@ import os
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project src/ root
+sys.path.insert(0, SRC)
 
 # Load .env the same way the CLI does.
 import main  # noqa: E402  (runs load_dotenv())
@@ -70,10 +69,7 @@ def end_to_end():
     from db import store
     from pipeline.router import route
 
-    store.DB_PATH = os.path.join(ROOT, "scripts", "_apitest.db")
-    if os.path.exists(store.DB_PATH):
-        os.remove(store.DB_PATH)
-    store.init_db()
+    store.init_db()   # applies migrations on the configured backend
 
     provider = llm.resolve_provider()
     print(f"\n=== END-TO-END pipeline turn  (provider: {provider}, quality={llm.model_for('quality')}) ===")
@@ -90,8 +86,6 @@ def end_to_end():
         t0 = time.time()
         resp = route(uid, "apitest", msg)
         print(f"StarSage ({time.time()-t0:.1f}s) >\n{resp}")
-
-    os.remove(store.DB_PATH)
 
 
 def main_():

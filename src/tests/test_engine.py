@@ -8,7 +8,7 @@ import os
 import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from astro import build_natal_chart
 from astro.combustion import is_combust

@@ -9,9 +9,8 @@ import sys
 import time
 from datetime import datetime
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project src/ root
+sys.path.insert(0, SRC)
 
 import main  # noqa: E402  (loads .env)
 from astro import build_natal_chart  # noqa: E402
@@ -41,10 +40,7 @@ def chart_line(c):
 
 
 def main_():
-    store.DB_PATH = os.path.join(ROOT, "scripts", "_samples.db")
-    if os.path.exists(store.DB_PATH):
-        os.remove(store.DB_PATH)
-    store.init_db()
+    store.init_db()   # applies migrations on the configured backend
 
     print(f"_Provider: **{llm.resolve_provider()}** (quality `{llm.model_for('quality')}`, "
           f"fast `{llm.model_for('fast')}`). Charts computed for reference date {TARGET.date()}._\n")
@@ -64,8 +60,6 @@ def main_():
             print(f"**Q ({kind}, {dt:.0f}s):** {msg}\n")
             print(f"**StarSage:**\n\n{resp}\n")
         print("---\n")
-
-    os.remove(store.DB_PATH)
 
 
 if __name__ == "__main__":
