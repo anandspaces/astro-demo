@@ -4,7 +4,6 @@
 Schedule with cron, e.g.:  0 1 * * *  python jobs/recalc_transits.py
 """
 import os
-import sqlite3
 import sys
 from datetime import datetime
 
@@ -18,18 +17,15 @@ from db import store                            # noqa: E402
 def run(target=None):
     target = target or datetime.utcnow()
     store.init_db()
-    with sqlite3.connect(store.DB_PATH) as c:
-        c.row_factory = sqlite3.Row
-        rows = c.execute("SELECT user_id FROM user_charts").fetchall()
     updated = 0
-    for r in rows:
-        chart = store.get_user_chart(r["user_id"])
+    for user_id in store.all_chart_user_ids():
+        chart = store.get_user_chart(user_id)
         if not chart:
             continue
         chart["transits"] = current_transits(
             target, chart["lagna"]["sign"], chart["planets"]["Moon"]["sign"]
         )
-        store.save_chart(r["user_id"], chart)
+        store.save_chart(user_id, chart)
         updated += 1
     print(f"Recalculated transits for {updated} chart(s) as of {target.date()}")
 

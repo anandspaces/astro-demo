@@ -7,7 +7,6 @@ deferred per Part 18 until the core pipeline is stable.
 Schedule with cron, e.g.:  30 1 * * *  python jobs/surface_predictions.py
 """
 import os
-import sqlite3
 import sys
 from datetime import date, datetime
 
@@ -38,18 +37,15 @@ def _window_active(pred, today_):
 def run(today_=None):
     today_ = today_ or date.today()
     store.init_db()
-    with sqlite3.connect(store.DB_PATH) as c:
-        c.row_factory = sqlite3.Row
-        rows = c.execute("SELECT user_id, domain FROM user_reading_ledger").fetchall()
 
     surfaced = 0
-    for r in rows:
-        ledger = store.get_ledger_from_db(r["user_id"], r["domain"])
+    for user_id, domain in store.all_ledger_keys():
+        ledger = store.get_ledger_from_db(user_id, domain)
         changed = False
         for pred in ledger.get("predictions_made", []):
             if not pred.get("surfaced") and _window_active(pred, today_):
                 send_push_notification(
-                    r["user_id"],      # user_id lives on the ledger row, not the prediction record
+                    user_id,           # user_id lives on the ledger row, not the prediction record
                     f"StarSage identified this period as significant for your {pred['domain']}. "
                     f"You are now in it. Ask StarSage what to watch for.",
                 )
@@ -57,7 +53,7 @@ def run(today_=None):
                 changed = True
                 surfaced += 1
         if changed:
-            store.save_ledger(r["user_id"], r["domain"], ledger)
+            store.save_ledger(user_id, domain, ledger)
     print(f"Surfaced {surfaced} prediction(s) for {today_}")
 
 

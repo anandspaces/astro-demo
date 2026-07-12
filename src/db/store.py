@@ -1,5 +1,5 @@
-"""Datastore repository (Part 7), on SQLAlchemy ORM. Backend-agnostic (Postgres or
-SQLite) via db/database.py. Schema is defined in db/models.py; migrations in db/alembic.
+"""Datastore repository (Part 7), on SQLAlchemy ORM over PostgreSQL (db/database.py).
+Schema is defined in db/models.py; migrations in db/alembic.
 
 Public functions keep returning plain dicts/values so the pipeline layer is unchanged.
 """
@@ -9,7 +9,10 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 
 from .database import Session, backend_name, target  # noqa: F401  (re-exported)
-from .models import SessionMessage, User, UserChart, UserReadingLedger, UserSession
+from .models import (AppSettings, SessionMessage, User, UserChart,
+                     UserReadingLedger, UserSession)
+
+SETTINGS_ID = "global"   # singleton row until per-account auth lands
 
 SESSION_TIMEOUT_MIN = 30
 
@@ -38,6 +41,32 @@ def init_db():
 
 def _row(obj, *cols):
     return {c: getattr(obj, c) for c in cols} if obj else None
+
+
+# ---- app settings (provider + encrypted keys) -----------------------------
+def get_settings():
+    """Return the singleton settings row as a dict (empty dict if unset)."""
+    with Session() as s:
+        return _row(s.get(AppSettings, SETTINGS_ID), "provider",
+                    "claude_key_enc", "gpt_key_enc", "gemini_key_enc", "updated_at") or {}
+
+
+def save_settings(provider=None, key_enc_by_provider=None):
+    """Upsert settings. `provider` sets the active provider when given (not None);
+    each entry in `key_enc_by_provider` ({provider: enc_or_None}) overwrites that
+    provider's stored key (None clears it; an absent provider is left unchanged)."""
+    col = {"claude": "claude_key_enc", "gpt": "gpt_key_enc", "gemini": "gemini_key_enc"}
+    with Session.begin() as s:
+        row = s.get(AppSettings, SETTINGS_ID)
+        if row is None:
+            row = AppSettings(id=SETTINGS_ID)
+            s.add(row)
+        if provider is not None:
+            row.provider = provider
+        for prov, enc in (key_enc_by_provider or {}).items():
+            if prov in col:
+                setattr(row, col[prov], enc)
+        row.updated_at = now()
 
 
 # ---- users & charts -------------------------------------------------------
@@ -166,5 +195,15 @@ def get_last_assistant_turn(session_id):
     return row.content if row else ""
 
 
-# Back-compat for callers that referenced store.DB_PATH.
-DB_PATH = target()
+# ---- batch/cron helpers ---------------------------------------------------
+def all_chart_user_ids():
+    """Every user_id that has a stored chart (for daily transit recalc)."""
+    with Session() as s:
+        return [r[0] for r in s.execute(select(UserChart.user_id)).all()]
+
+
+def all_ledger_keys():
+    """Every (user_id, domain) pair in the reading ledger (for prediction surfacing)."""
+    with Session() as s:
+        return [(r.user_id, r.domain) for r in
+                s.execute(select(UserReadingLedger.user_id, UserReadingLedger.domain)).all()]

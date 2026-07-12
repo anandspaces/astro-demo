@@ -1,22 +1,34 @@
 """SQLAlchemy schema (Part 7). Single source of truth for the database structure;
 Alembic autogenerates migrations from this metadata.
 
-JSON columns use jsonb on PostgreSQL and JSON (text) on SQLite via a type variant.
-Timestamps are timezone-aware.
+JSON columns use PostgreSQL jsonb. Timestamps are timezone-aware.
 """
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-# jsonb on Postgres, JSON (stored as text) on SQLite.
-JSONType = JSON().with_variant(JSONB(), "postgresql")
+JSONType = JSONB
 TS = DateTime(timezone=True)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class AppSettings(Base):
+    """LLM preferences for the console: the selected provider + provider API keys.
+    A single row (id='global') for now; scoping moves to per-account when auth
+    lands. Keys are stored Fernet-encrypted (see keystore.encrypt_secret) — never
+    plaintext."""
+    __tablename__ = "app_settings"
+    id: Mapped[str] = mapped_column(String, primary_key=True)     # singleton: 'global'
+    provider: Mapped[str | None] = mapped_column(String)          # claude | gpt | gemini | mock
+    claude_key_enc: Mapped[str | None] = mapped_column(String)
+    gpt_key_enc: Mapped[str | None] = mapped_column(String)
+    gemini_key_enc: Mapped[str | None] = mapped_column(String)
+    updated_at: Mapped[datetime | None] = mapped_column(TS)
 
 
 class User(Base):
