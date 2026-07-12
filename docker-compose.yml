@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
       POSTGRES_DB: starsage
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d starsage"]
       interval: 5s
@@ -22,10 +22,6 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-root}@db:5432/starsage
       STARSAGE_PORT: "8765"
-      STARSAGE_PROVIDER: ${STARSAGE_PROVIDER:-mock}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STARSAGE_SECRET_KEY: ${STARSAGE_SECRET_KEY:-}
     ports:
       - "8765:8765"
