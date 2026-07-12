@@ -2,6 +2,12 @@
 pyswisseph>=2.10
 pytz>=2023.3
 
+# Datastore — SQLAlchemy models + Alembic migrations.
+# Postgres when DATABASE_URL is set (psycopg driver); SQLite otherwise (stdlib).
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1
+
 # LLM providers (install only the one(s) you use; the switch lazy-imports)
 anthropic>=0.40        # STARSAGE_PROVIDER=claude
 openai>=1.40           # STARSAGE_PROVIDER=gpt
