@@ -8,9 +8,12 @@ explicitly (see .env.example).
 """
 import base64
 import hashlib
+import logging
 import os
 
 from cryptography.fernet import Fernet, InvalidToken
+
+log = logging.getLogger("starsage.keystore")
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project root
 _SECRET_FILE = os.path.join(_ROOT, ".starsage_secret")
@@ -30,7 +33,12 @@ def _load_fernet() -> Fernet:
             digest = hashlib.sha256(key.encode()).digest()
             _fernet = Fernet(base64.urlsafe_b64encode(digest))
         return _fernet
-    # No env key: derive + persist one for local/dev continuity.
+    # No env key: derive + persist one for local/dev continuity. In a container
+    # this file lives only in the writable layer, so it is LOST on every rebuild
+    # — taking every stored (encrypted) API key with it. Set STARSAGE_SECRET_KEY.
+    log.warning("STARSAGE_SECRET_KEY is not set — falling back to a generated "
+                ".starsage_secret. Stored API keys will NOT survive a container "
+                "rebuild. Set STARSAGE_SECRET_KEY in any deployed environment.")
     if os.path.exists(_SECRET_FILE):
         with open(_SECRET_FILE, "rb") as f:
             _fernet = Fernet(f.read().strip())

@@ -86,12 +86,27 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
         for delta in llm.stream_llm("quality", system, history, user, temp=0.75, max_tokens=900):
             acc.append(delta)
             on_token(delta)
-        return "".join(acc)
-    except Exception:
-        # Fall back to a single non-streamed call.
-        text = run_generator(user_message, chart_slice, planner_json, history)
-        on_token(text)
-        return text
+    except Exception as e:
+        log.warning("generator stream failed: %s: %s", type(e).__name__, e)
+
+    text = "".join(acc)
+    if text.strip():
+        return text            # usable text streamed (even if it errored partway) — keep it
+
+    # Nothing usable streamed → clean non-streamed fallback (has its own retry/fallback).
+    # We only reach here when no tokens were emitted, so there is no double-emit.
+    text = run_generator(user_message, chart_slice, planner_json, history)
+    on_token(text)
+    return text
+
+
+def _quality_call(system, history, user):
+    """One quality-tier generation. An empty/whitespace completion is treated as a
+    failure so the caller's retry/fallback path runs instead of returning a blank."""
+    text = llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
+    if not text or not text.strip():
+        raise RuntimeError("empty completion from provider")
+    return text
 
 
 def run_generator(user_message, chart_slice, planner_json, history, rewrite_instruction=None):
@@ -111,13 +126,13 @@ def run_generator(user_message, chart_slice, planner_json, history, rewrite_inst
 
     provider, model = llm.resolve_provider(), llm.model_for("quality")
     try:
-        return llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
+        return _quality_call(system, history, user)
     except Exception as e:
         log.warning("generator LLM call failed (provider=%s model=%s), retrying: %s: %s",
                     provider, model, type(e).__name__, e)
         time.sleep(2)
         try:
-            return llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
+            return _quality_call(system, history, user)
         except Exception as e:
             log.error("generator LLM call failed after retry (provider=%s model=%s): %s: %s",
                       provider, model, type(e).__name__, e, exc_info=True)

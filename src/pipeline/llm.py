@@ -169,15 +169,21 @@ def _dispatch(tier, system, messages, temp, max_tokens):
     provider = resolve_provider()
     if provider == "mock":
         raise RuntimeError("LLM called in mock mode — callers should check is_mock() first.")
+    if _key_for(provider) is None:
+        # Clear, loggable error instead of the SDK's opaque "could not resolve
+        # authentication method" (e.g. a stored key that failed to decrypt).
+        raise RuntimeError(f"no usable API key for provider '{provider}' "
+                           "(missing, or failed to decrypt — check STARSAGE_SECRET_KEY)")
     model = model_for(tier)
     log.info("LLM call: provider=%s tier=%s model=%s", provider, tier, model)
     try:
-        return _DISPATCH[provider](model, system, messages, temp, max_tokens)
+        out = _DISPATCH[provider](model, system, messages, temp, max_tokens)
     except Exception as e:
         # Log the true provider error here (the caller may swallow it into a fallback).
         log.error("LLM call failed: provider=%s model=%s -> %s: %s",
                   provider, model, type(e).__name__, e)
         raise
+    return out or ""   # normalise a None/empty completion to "" for uniform handling
 
 
 def call_llm(tier, system, user, temp=0.7, max_tokens=800):
@@ -241,5 +247,8 @@ def stream_llm(tier, system, history, user, temp=0.7, max_tokens=800):
     provider = resolve_provider()
     if provider == "mock":
         raise RuntimeError("stream_llm called in mock mode — callers should check is_mock() first.")
+    if _key_for(provider) is None:
+        raise RuntimeError(f"no usable API key for provider '{provider}' "
+                           "(missing, or failed to decrypt — check STARSAGE_SECRET_KEY)")
     messages = list(history) + [{"role": "user", "content": user}]
     yield from _STREAM[provider](model_for(tier), system, messages, temp, max_tokens)
