@@ -39,11 +39,20 @@ WEB_DIR = os.path.join(os.path.dirname(ROOT), "web")
 PORT = int(os.environ.get("STARSAGE_PORT", "8765"))
 _provider_lock = threading.Lock()   # serialise provider/key-env swaps during chat
 
-# provider -> (settings column holding the encrypted key, env var the SDK reads)
+PROVIDERS = ("claude", "gpt", "gemini")
+
+# provider -> (encrypted-key column, key env var, chosen-model column)
 _KEY_MAP = {
-    "claude": ("claude_key_enc", "ANTHROPIC_API_KEY"),
-    "gpt": ("gpt_key_enc", "OPENAI_API_KEY"),
-    "gemini": ("gemini_key_enc", "GEMINI_API_KEY"),
+    "claude": ("claude_key_enc", "ANTHROPIC_API_KEY", "claude_model"),
+    "gpt": ("gpt_key_enc", "OPENAI_API_KEY", "gpt_model"),
+    "gemini": ("gemini_key_enc", "GEMINI_API_KEY", "gemini_model"),
+}
+
+# Curated fallback when a provider's key isn't set yet (so no live fetch is possible).
+_FALLBACK_MODELS = {
+    "claude": ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+    "gpt": ["gpt-4o", "gpt-4o-mini", "o4-mini"],
+    "gemini": ["gemini-2.5-pro", "gemini-2.5-flash"],
 }
 
 
@@ -59,18 +68,19 @@ def _summary(chart):
 
 
 def _settings_view():
-    """Provider + which keys are set (masked). Never returns raw keys."""
+    """Provider, which keys are set (masked), and the chosen/default model per
+    provider. Never returns raw keys."""
     st = store.get_settings()
-    keys = {}
-    for prov, (enc_col, _env) in _KEY_MAP.items():
+    keys, models = {}, {}
+    for prov, (enc_col, _env, model_col) in _KEY_MAP.items():
         plain = keystore.decrypt_secret(st.get(enc_col)) if st.get(enc_col) else None
         keys[prov] = {"set": bool(plain), "hint": keystore.mask_secret(plain or "")}
+        models[prov] = {"chosen": st.get(model_col) or "", "default": llm.MODELS[prov]["quality"]}
     return {
         "provider": st.get("provider") or "",
+        "providers": list(PROVIDERS),
         "keys": keys,
-        "providers": ["claude", "gpt", "gemini", "mock"],
-        "models": {p: {"quality": llm.MODELS[p]["quality"], "fast": llm.MODELS[p]["fast"]}
-                   for p in ("claude", "gpt", "gemini")},
+        "models": models,
     }
 
 
@@ -94,13 +104,18 @@ class _LLMEnv:
             else:
                 os.environ[k] = v
 
-        for prov, (enc_col, env) in _KEY_MAP.items():
+        for prov, (enc_col, env, _model_col) in _KEY_MAP.items():
             plain = keystore.decrypt_secret(st.get(enc_col)) if st.get(enc_col) else None
             if plain:
                 setenv(env, plain)
         prov = (self._override or st.get("provider") or "").strip().lower()
         if prov:
             setenv("STARSAGE_PROVIDER", prov)
+        # Apply the chosen model for the active provider to the reading (quality) tier.
+        if prov in _KEY_MAP:
+            chosen = st.get(_KEY_MAP[prov][2])
+            if chosen:
+                setenv(f"STARSAGE_{prov.upper()}_QUALITY", chosen)
         return self
 
     def __exit__(self, *exc):
@@ -120,6 +135,12 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass  # quiet
 
+    def end_headers(self):
+        # Never cache API responses or console assets, so a redeploy is picked up
+        # immediately instead of serving a stale UI from the browser cache.
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        super().end_headers()
+
     def _send(self, code, obj):
         body = json.dumps(obj, default=str).encode()
         self.send_response(code)
@@ -137,6 +158,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/settings":
             return self._send(200, _settings_view())
+        if path == "/api/models":
+            return self._list_models()
         if path == "/api/provider":
             with _LLMEnv():
                 return self._send(200, {
@@ -181,7 +204,7 @@ class Handler(SimpleHTTPRequestHandler):
         provider = b.get("provider")
         if provider is not None:
             provider = provider.strip().lower()
-            if provider and provider not in ("claude", "gpt", "gemini", "mock"):
+            if provider and provider not in PROVIDERS:
                 return self._send(400, {"error": f"unknown provider: {provider}"})
         # keys: {provider: "raw-key" to set, "" or null to clear}
         key_enc = {}
@@ -189,8 +212,35 @@ class Handler(SimpleHTTPRequestHandler):
             if prov not in _KEY_MAP:
                 continue
             key_enc[prov] = None if (val is None or val == "") else keystore.encrypt_secret(val.strip())
-        store.save_settings(provider=provider, key_enc_by_provider=key_enc)
+        # models: {provider: "model-id" or "" to reset to default}
+        models = {}
+        for prov, val in (b.get("models") or {}).items():
+            if prov not in _KEY_MAP:
+                continue
+            models[prov] = (val or "").strip() or None
+        store.save_settings(provider=provider, key_enc_by_provider=key_enc, model_by_provider=models)
         return self._send(200, _settings_view())
+
+    def _list_models(self):
+        """Live model ids from the provider's official API, using the stored key;
+        falls back to a curated list if no key is set or the fetch fails."""
+        qs = parse_qs(urlparse(self.path).query)
+        provider = (qs.get("provider") or [""])[0].strip().lower()
+        if provider not in _KEY_MAP:
+            return self._send(400, {"error": f"unknown provider: {provider}"})
+        enc_col = _KEY_MAP[provider][0]
+        key = keystore.decrypt_secret(store.get_settings().get(enc_col) or "") if store.get_settings().get(enc_col) else None
+        if not key:
+            return self._send(200, {"provider": provider, "models": _FALLBACK_MODELS[provider],
+                                    "source": "fallback", "note": "add and save this key to load the live list"})
+        try:
+            models = llm.list_models(provider, key)
+            if models:
+                return self._send(200, {"provider": provider, "models": models, "source": "live"})
+            return self._send(200, {"provider": provider, "models": _FALLBACK_MODELS[provider], "source": "fallback"})
+        except Exception as e:
+            return self._send(200, {"provider": provider, "models": _FALLBACK_MODELS[provider],
+                                    "source": "fallback", "error": f"{type(e).__name__}: {e}"})
 
     # -- chart / chat -----------------------------------------------------
     def _signup(self):
@@ -219,9 +269,8 @@ class Handler(SimpleHTTPRequestHandler):
         override = (b.get("provider") or "").strip().lower() or None
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
+        self.end_headers()   # Cache-Control: no-store added by end_headers override
 
         def emit(kind, data):
             try:
