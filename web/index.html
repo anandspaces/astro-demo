@@ -18,10 +18,11 @@
   </header>
 
   <main>
-    <!-- LEFT: user + chart -->
+    <!-- LEFT: birth details -> chart (one step) -->
     <aside class="panel">
-      <section class="card" id="signupCard">
-        <h2><span class="num">1</span> Birth details</h2>
+      <section class="card" id="chartPanel">
+        <h2><span class="num">1</span> Your chart <span class="muted" id="activeUser"></span></h2>
+        <p class="steplead muted">Enter birth details, then compute the chart to start a reading.</p>
         <div class="grid">
           <label>Name<input id="name" value="Asha"></label>
           <label>Date of birth<input id="dob" type="date" value="1992-06-20"></label>
@@ -31,16 +32,11 @@
           <label>Lat <span class="opt">opt</span><input id="lat" placeholder="auto"></label>
           <label>Lon <span class="opt">opt</span><input id="lon" placeholder="auto"></label>
         </div>
-        <button id="signup" class="primary"><span>Compute chart</span> →</button>
+        <button id="signup" class="primary block"><span>Compute chart</span> →</button>
         <div id="signupOut" class="out"></div>
-      </section>
 
-      <section class="card" id="chartCard">
-        <h2><span class="num">2</span> Chart <span class="muted" id="activeUser"></span></h2>
-        <div class="row tight">
-          <input id="loadUser" placeholder="paste user_id to load">
-          <button id="loadBtn" class="ghost sm">Load</button>
-          <button id="chartBtn" class="ghost sm">View</button>
+        <div class="chart-actions">
+          <button id="chartBtn" class="ghost sm" hidden>View full chart</button>
         </div>
         <div id="chartOut" class="out"></div>
       </section>
@@ -49,15 +45,9 @@
     <!-- RIGHT: chat -->
     <section class="card chatcard">
       <div class="chathead">
-        <h2><span class="num">3</span> Ask StarSage</h2>
-        <label class="inline">Model
-          <select id="provSel">
-            <option value="">saved default</option>
-            <option value="claude">claude</option>
-            <option value="gpt">gpt</option>
-            <option value="gemini">gemini</option>
-            <option value="mock">mock · instant</option>
-          </select>
+        <h2><span class="num">2</span> Ask StarSage</h2>
+        <label class="inline" id="modelToggle" hidden>Model
+          <select id="provSel"></select>
         </label>
       </div>
 
@@ -68,11 +58,14 @@
         <button class="chip" data-q="yes, tell me more">follow-up</button>
       </div>
 
-      <div id="chat" class="chat"></div>
+      <div class="chatscroll">
+        <div id="chat" class="chat" data-state="nochart"></div>
+        <button id="jumpLatest" class="jumplatest" hidden>↓ Latest</button>
+      </div>
 
       <form id="chatForm" class="composer">
-        <input id="msg" placeholder="Ask about career, marriage, wealth, the year ahead…" autocomplete="off">
-        <button id="send" class="primary send" aria-label="Send">➤</button>
+        <input id="msg" placeholder="Compute your chart to begin…" autocomplete="off" disabled>
+        <button id="send" class="primary send" aria-label="Send" disabled>➤</button>
       </form>
     </section>
   </main>
@@ -84,19 +77,21 @@
         <h2 style="margin:0"><span class="num">⚙</span> Model &amp; API keys</h2>
         <button id="closeSettings" class="iconbtn" aria-label="Close">✕</button>
       </div>
-      <p class="muted small">Pick which model answers your readings and store its API key.
-        Keys are encrypted at rest and never sent back to the browser — this panel only shows a masked hint.</p>
+      <p class="muted small">Pick which provider answers your readings, add its API key, and
+        choose a model (fetched live from the provider once its key is saved). Keys are encrypted
+        at rest and never sent back to the browser — this panel only shows a masked hint.</p>
 
       <div class="modalbody">
         <div class="field">
-          <div class="fieldlabel">Active model</div>
+          <div class="fieldlabel">Active provider</div>
           <div id="providerCards" class="provgrid"></div>
         </div>
         <div class="field">
-          <div class="fieldlabel">API keys</div>
+          <div class="fieldlabel">API key &amp; model</div>
           <div id="keyRows" class="keyrows"></div>
         </div>
       </div>
+      <div id="settingsGate" class="gatemsg" hidden>Add an API key for at least one provider to continue.</div>
 
       <div class="modalfoot">
         <div id="settingsOut" class="out"></div>
