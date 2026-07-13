@@ -146,3 +146,60 @@ Previous domain:       {last_domain}
 Your job is to execute the plan with depth and quality — not to replan.
 Follow the response structure for the query type as defined in your instructions.
 """
+
+
+# ---------------------------------------------------------------------------
+# Editable-prompt registry (2026-07). The console can override any of these at
+# runtime (stored in db.prompt_overrides); get_prompt() returns the override if
+# present, else the hardcoded default below. This lets the operator iterate on
+# response quality without a redeploy. Callers must use get_prompt(...) rather
+# than importing the constants directly, so edits take effect on the next turn.
+# ---------------------------------------------------------------------------
+PROMPT_META = {
+    "system":   {"label": "Generator — StarSage voice/system prompt",
+                 "note": "The reading persona + response structures. Biggest lever on response quality."},
+    "planner":  {"label": "Planner — reading-plan prompt",
+                 "note": "Chooses domain/mechanism/axis/timing. Must return the JSON shape shown; keep it strict."},
+    "critic":   {"label": "Critic — quality-review prompt",
+                 "note": "Judges the draft. Must return the JSON shape shown."},
+    "preamble": {"label": "Generator — per-turn pipeline preamble",
+                 "note": "Injected before each reading. MUST keep the {placeholders} intact or it falls back to default."},
+}
+
+_DEFAULTS = {
+    "system": STARSAGE_SYSTEM_PROMPT,
+    "planner": PLANNER_PROMPT,
+    "critic": CRITIC_PROMPT,
+    "preamble": PIPELINE_PREAMBLE,
+}
+
+# Placeholders the preamble template must contain; if an override drops any, we
+# reject it at read time and fall back to the default so .format() cannot crash.
+_PREAMBLE_FIELDS = ("query_type", "response_structure", "mechanism", "insight_axis",
+                    "factors_to_use", "factors_to_avoid", "yoga_used",
+                    "last_mechanism", "last_insight_axis", "last_domain")
+
+
+def default_prompt(name):
+    return _DEFAULTS[name]
+
+
+def _valid_preamble(text):
+    return all(("{" + f + "}") in text for f in _PREAMBLE_FIELDS)
+
+
+def get_prompt(name):
+    """Effective prompt text for `name`: the DB override if set and valid, else the
+    hardcoded default. Never raises — any DB/validation problem falls back to default
+    so a broken override can't take the pipeline down."""
+    default = _DEFAULTS[name]
+    try:
+        from db import store
+        override = store.get_prompt_override(name)
+    except Exception:
+        return default
+    if not override:
+        return default
+    if name == "preamble" and not _valid_preamble(override):
+        return default        # override dropped a required {placeholder} — ignore it
+    return override

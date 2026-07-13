@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 
 from .database import Session, backend_name, target  # noqa: F401  (re-exported)
-from .models import (AppSettings, SessionMessage, User, UserChart,
-                     UserReadingLedger, UserSession)
+from .models import (AppSettings, PromptOverride, SessionMessage, User,
+                     UserChart, UserReadingLedger, UserSession)
 
 SETTINGS_ID = "global"   # singleton row until per-account auth lands
 
@@ -73,6 +73,36 @@ def save_settings(provider=None, key_enc_by_provider=None, model_by_provider=Non
             if prov in model_col:
                 setattr(row, model_col[prov], model or None)
         row.updated_at = now()
+
+
+# ---- prompt overrides -----------------------------------------------------
+def get_prompt_override(name):
+    """Return the override content for a prompt name, or None if not overridden."""
+    with Session() as s:
+        row = s.get(PromptOverride, name)
+        return row.content if row else None
+
+
+def get_all_prompt_overrides():
+    """Map {name: content} of every prompt currently overridden."""
+    with Session() as s:
+        return {r.name: r.content for r in s.execute(select(PromptOverride)).scalars()}
+
+
+def save_prompt_override(name, content):
+    with Session.begin() as s:
+        s.merge(PromptOverride(name=name, content=content, updated_at=now()))
+
+
+def delete_prompt_override(name):
+    """Remove an override so the prompt reverts to its hardcoded default. Returns
+    True if a row was deleted."""
+    with Session.begin() as s:
+        row = s.get(PromptOverride, name)
+        if not row:
+            return False
+        s.delete(row)
+        return True
 
 
 # ---- users & charts -------------------------------------------------------

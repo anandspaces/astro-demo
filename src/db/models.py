@@ -35,6 +35,16 @@ class AppSettings(Base):
     updated_at: Mapped[datetime | None] = mapped_column(TS)
 
 
+class PromptOverride(Base):
+    """User-edited pipeline prompt, keyed by prompt name (system/planner/critic/
+    preamble). Present row = override active; absent = use the hardcoded default in
+    pipeline/prompts.py. Lets the console iterate on prompts without a redeploy."""
+    __tablename__ = "prompt_overrides"
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    content: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[datetime | None] = mapped_column(TS)
+
+
 class User(Base):
     __tablename__ = "users"
     user_id: Mapped[str] = mapped_column(String, primary_key=True)

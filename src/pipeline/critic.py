@@ -6,8 +6,7 @@ heuristic angle summary.
 """
 import json
 
-from . import llm, precheck
-from .prompts import CRITIC_PROMPT
+from . import llm, precheck, prompts
 
 
 def _heuristic_angle(planner_json):
@@ -41,7 +40,8 @@ def run_critic(response, planner_json, ledger, chart_slice):
         }
 
     try:
-        raw = llm.call_llm("fast", CRITIC_PROMPT, build_critic_input(response, planner_json, ledger, chart_slice),
+        raw = llm.call_llm("fast", prompts.get_prompt("critic"),
+                           build_critic_input(response, planner_json, ledger, chart_slice),
                            temp=0.2, max_tokens=350)
         raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         cj = json.loads(raw)

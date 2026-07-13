@@ -36,6 +36,7 @@ log = logging.getLogger("starsage.server")
 from astro import build_natal_chart  # noqa: E402
 from db import store  # noqa: E402
 from pipeline import llm  # noqa: E402
+from pipeline import prompts as prompts_mod  # noqa: E402
 from pipeline.router import route  # noqa: E402
 from pipeline.stream import stream_route  # noqa: E402
 
@@ -69,6 +70,23 @@ def _summary(chart):
         "dasha": f"{d['current_MD']['planet']} MD → {d['current_AD']['planet']} AD → {d['current_PD']['planet']} PD",
         "yogas": [y["name"] for y in chart["yogas"]],
     }
+
+
+def _prompts_view():
+    """Every editable pipeline prompt: its effective text (override or default),
+    the default (for a reset/diff), and whether it's currently overridden."""
+    overrides = store.get_all_prompt_overrides()
+    out = []
+    for name, meta in prompts_mod.PROMPT_META.items():
+        out.append({
+            "name": name,
+            "label": meta["label"],
+            "note": meta["note"],
+            "content": prompts_mod.get_prompt(name),          # effective (override or default)
+            "default": prompts_mod.default_prompt(name),
+            "overridden": name in overrides,
+        })
+    return {"prompts": out}
 
 
 def _settings_view():
@@ -162,6 +180,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/settings":
             return self._send(200, _settings_view())
+        if path == "/api/prompts":
+            return self._send(200, _prompts_view())
         if path == "/api/models":
             return self._list_models()
         if path == "/api/provider":
@@ -180,11 +200,14 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_PUT(self):
-        if urlparse(self.path).path == "/api/settings":
-            try:
+        path = urlparse(self.path).path
+        try:
+            if path == "/api/settings":
                 return self._put_settings()
-            except Exception as e:
-                return self._send(500, {"error": f"{type(e).__name__}: {e}"})
+            if path == "/api/prompts":
+                return self._put_prompt()
+        except Exception as e:
+            return self._send(500, {"error": f"{type(e).__name__}: {e}"})
         return self._send(404, {"error": "unknown endpoint"})
 
     def do_POST(self):
@@ -192,6 +215,10 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if path == "/api/settings":       # POST accepted as alias for PUT
                 return self._put_settings()
+            if path == "/api/prompts":        # POST accepted as alias for PUT
+                return self._put_prompt()
+            if path == "/api/prompts/reset":
+                return self._reset_prompt()
             if path == "/api/signup":
                 return self._signup()
             if path == "/api/chat":
@@ -224,6 +251,32 @@ class Handler(SimpleHTTPRequestHandler):
             models[prov] = (val or "").strip() or None
         store.save_settings(provider=provider, key_enc_by_provider=key_enc, model_by_provider=models)
         return self._send(200, _settings_view())
+
+    # -- prompts ----------------------------------------------------------
+    def _put_prompt(self):
+        """Save an override for one pipeline prompt. Rejects unknown names and, for
+        the preamble, an override that drops a required {placeholder}."""
+        b = self._body()
+        name = (b.get("name") or "").strip()
+        content = b.get("content")
+        if name not in prompts_mod.PROMPT_META:
+            return self._send(400, {"error": f"unknown prompt: {name}"})
+        if not isinstance(content, str) or not content.strip():
+            return self._send(400, {"error": "content must be a non-empty string"})
+        if name == "preamble" and not prompts_mod._valid_preamble(content):
+            missing = [f for f in prompts_mod._PREAMBLE_FIELDS if "{" + f + "}" not in content]
+            return self._send(400, {"error": f"preamble is missing required placeholders: {missing}"})
+        store.save_prompt_override(name, content)
+        return self._send(200, _prompts_view())
+
+    def _reset_prompt(self):
+        """Delete an override so the prompt reverts to its hardcoded default."""
+        b = self._body()
+        name = (b.get("name") or "").strip()
+        if name not in prompts_mod.PROMPT_META:
+            return self._send(400, {"error": f"unknown prompt: {name}"})
+        store.delete_prompt_override(name)
+        return self._send(200, _prompts_view())
 
     def _list_models(self):
         """Live model ids from the provider's official API, using the stored key;

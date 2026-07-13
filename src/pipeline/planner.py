@@ -5,8 +5,7 @@ Fallback fixes: #14 per-domain house/dchart/karaka (not career-hardcoded),
 """
 import json
 
-from . import llm
-from .prompts import PLANNER_PROMPT
+from . import llm, prompts
 
 # Per-domain defaults for the fallback (bug #14). (primary_house, divisional_chart, karaka)
 DOMAIN_DEFAULTS = {
@@ -105,7 +104,7 @@ def run_planner(user_message, chart_slice, ledger_view, session_state,
     payload = build_planner_input(user_message, chart_slice, ledger_view, session_state,
                                   query_type, secondary_domain)
     try:
-        raw = llm.call_llm("fast", PLANNER_PROMPT, payload, temp=0.3, max_tokens=600)
+        raw = llm.call_llm("fast", prompts.get_prompt("planner"), payload, temp=0.3, max_tokens=600)
         raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         return json.loads(raw)
     except (json.JSONDecodeError, Exception):

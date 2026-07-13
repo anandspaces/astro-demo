@@ -30,7 +30,7 @@ from . import planner as planner_mod
 from . import llm
 from .chart_map import get_chart_slice, merge_chart_slices
 from .classify import classify_domain, classify_query_type
-from .prompts import STARSAGE_SYSTEM_PROMPT
+from . import prompts
 
 
 def _attach_future_transits(planner_json, chart):
@@ -142,7 +142,7 @@ def _stream_affirmation(user_id, session_id, message, chart, on_event):
                 f"immediately: {cue}. Do not reintroduce context. Pick up from where the last response ended.")
         acc = []
         try:
-            for delta in llm.stream_llm("quality", STARSAGE_SYSTEM_PROMPT, history, user, 0.75, 1100):
+            for delta in llm.stream_llm("quality", prompts.get_prompt("system"), history, user, 0.75, 1100):
                 acc.append(delta)
                 on_event("token", {"text": delta})
             text = "".join(acc)
@@ -173,7 +173,7 @@ def _stream_synthesis(user_id, session_id, chart, on_event):
         all_ledgers = store.get_all_domain_ledgers(user_id)
         user = f"{directive}\n\nLEDGER:\n{all_ledgers}\n\n{format_chart_for_generator(get_chart_slice(chart,'forecast'))}"
         acc = []
-        for delta in llm.stream_llm("quality", STARSAGE_SYSTEM_PROMPT, history, user, 0.8, 1000):
+        for delta in llm.stream_llm("quality", prompts.get_prompt("system"), history, user, 0.8, 1000):
             acc.append(delta)
             on_event("token", {"text": delta})
         text = "".join(acc)

@@ -7,7 +7,7 @@ from . import llm
 
 log = logging.getLogger("starsage.generator")
 from .format_chart import format_chart_for_generator, format_chart_minimal
-from .prompts import PIPELINE_PREAMBLE, STARSAGE_SYSTEM_PROMPT
+from . import prompts
 
 
 def _estimate_tokens(text):
@@ -45,7 +45,7 @@ def _format_timing_support(planner_json):
 
 def build_generator_input(user_message, chart_slice, planner_json, minimal=False):
     chart_txt = format_chart_minimal(chart_slice) if minimal else format_chart_for_generator(chart_slice)
-    preamble = PIPELINE_PREAMBLE.format(
+    fields = dict(
         query_type=planner_json.get("query_type"),
         response_structure=planner_json.get("response_structure"),
         mechanism=planner_json.get("mechanism"),
@@ -55,6 +55,10 @@ def build_generator_input(user_message, chart_slice, planner_json, minimal=False
         yoga_used=planner_json.get("yoga_used") or "none",
         last_mechanism="(none)", last_insight_axis="(none)", last_domain="(none)",
     )
+    try:
+        preamble = prompts.get_prompt("preamble").format(**fields)
+    except (KeyError, IndexError, ValueError):
+        preamble = prompts.default_prompt("preamble").format(**fields)   # broken override → default
     timing_txt = _format_timing_support(planner_json)
     return f"{preamble}\n\n{chart_txt}{timing_txt}\n\nUSER QUESTION: {user_message}"
 
@@ -105,7 +109,7 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
         return full
 
     user = build_generator_input(user_message, chart_slice, planner_json)
-    system = STARSAGE_SYSTEM_PROMPT
+    system = prompts.get_prompt("system")
     parts_tokens = _estimate_tokens(system) + _estimate_tokens(user) + sum(_estimate_tokens(h["content"]) for h in history)
     if parts_tokens > 7000:
         history = history[-4:]
@@ -147,7 +151,7 @@ def run_generator(user_message, chart_slice, planner_json, history, rewrite_inst
     if rewrite_instruction:
         user += f"\n\nREVISION REQUIRED: {rewrite_instruction}"
 
-    system = STARSAGE_SYSTEM_PROMPT
+    system = prompts.get_prompt("system")
     # Token pressure -> trim history to 4 turns and use minimal chart (Part 14).
     parts_tokens = _estimate_tokens(system) + _estimate_tokens(user) + sum(_estimate_tokens(h["content"]) for h in history)
     if parts_tokens > 7000:

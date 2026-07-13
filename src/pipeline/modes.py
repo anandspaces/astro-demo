@@ -14,8 +14,7 @@ from . import generator as gen_mod
 from . import planner as planner_mod
 from .chart_map import get_chart_slice, merge_chart_slices
 from .classify import classify_domain, classify_query_type
-from .prompts import STARSAGE_SYSTEM_PROMPT
-from . import llm
+from . import llm, prompts
 
 log = logging.getLogger("starsage.modes")
 
@@ -80,7 +79,7 @@ def handle_synthesis(user_id, session_id, chart):
     else:
         from .format_chart import format_chart_for_generator
         user = f"{directive}\n\nCROSS-DOMAIN LEDGER:\n{all_ledgers}\n\n{format_chart_for_generator(get_chart_slice(chart,'forecast'))}"
-        response = llm.call_llm_with_history("quality", STARSAGE_SYSTEM_PROMPT, history, user, temp=0.8, max_tokens=1000)
+        response = llm.call_llm_with_history("quality", prompts.get_prompt("system"), history, user, temp=0.8, max_tokens=1000)
 
     store.save_turn(session_id, user_id, "user", "[synthesis triggered]", "synthesis")
     store.save_turn(session_id, user_id, "assistant", response, "synthesis", "synthesis")
@@ -107,7 +106,7 @@ def handle_affirmation(user_id, session_id, user_message, chart):
     else:
         user = (f"The user affirmed with: \"{user_message}\". Address this continuation cue directly and "
                 f"immediately: {cue}. Do not reintroduce context. Pick up from where the last response ended.")
-        response = llm.call_llm_with_history("quality", STARSAGE_SYSTEM_PROMPT, history, user, temp=0.75, max_tokens=1100)
+        response = llm.call_llm_with_history("quality", prompts.get_prompt("system"), history, user, temp=0.75, max_tokens=1100)
 
     store.save_turn(session_id, user_id, "user", user_message, domain)
     store.save_turn(session_id, user_id, "assistant", response, domain)
