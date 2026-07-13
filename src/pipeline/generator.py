@@ -14,6 +14,35 @@ def _estimate_tokens(text):
     return int(len(text.split()) * 1.35)
 
 
+def _format_timing_support(planner_json):
+    """Render the plan's dated timing windows + per-window future transits so the
+    Generator actually SEES the transit support for predictive queries (fix, 2026-07:
+    these were computed onto planner_json but never reached the Generator payload,
+    so timing responses were written blind to their own transit data)."""
+    windows = planner_json.get("timing_windows") or []
+    future = planner_json.get("future_transits") or {}
+    if not windows and not future:
+        return ""
+    lines = ["\nTIMING WINDOWS (cite these dated windows, most significant first):"]
+    for w in windows:
+        if isinstance(w, dict):
+            label, start, end = w.get("label", ""), w.get("start"), w.get("end")
+            lines.append(f"- {label}" + (f": {start}–{end}" if start and end else ""))
+        else:
+            lines.append(f"- {w}")
+    if future:
+        lines.append("FUTURE TRANSIT SUPPORT (slow planets at each window's midpoint):")
+        for label, transits in future.items():
+            bits = ", ".join(
+                f"{p} {t.get('sign')} ({t.get('house_from_moon')}H from Moon)"
+                for p, t in transits.items())
+            lines.append(f"- {label}: {bits}")
+    confidence = planner_json.get("timing_confidence")
+    if confidence:
+        lines.append(f"TIMING CONFIDENCE: {confidence}")
+    return "\n".join(lines)
+
+
 def build_generator_input(user_message, chart_slice, planner_json, minimal=False):
     chart_txt = format_chart_minimal(chart_slice) if minimal else format_chart_for_generator(chart_slice)
     preamble = PIPELINE_PREAMBLE.format(
@@ -26,7 +55,8 @@ def build_generator_input(user_message, chart_slice, planner_json, minimal=False
         yoga_used=planner_json.get("yoga_used") or "none",
         last_mechanism="(none)", last_insight_axis="(none)", last_domain="(none)",
     )
-    return f"{preamble}\n\n{chart_txt}\n\nUSER QUESTION: {user_message}"
+    timing_txt = _format_timing_support(planner_json)
+    return f"{preamble}\n\n{chart_txt}{timing_txt}\n\nUSER QUESTION: {user_message}"
 
 
 def _mock_reading(user_message, chart_slice, planner_json):
@@ -83,7 +113,7 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
 
     acc = []
     try:
-        for delta in llm.stream_llm("quality", system, history, user, temp=0.75, max_tokens=900):
+        for delta in llm.stream_llm("quality", system, history, user, temp=0.75, max_tokens=1100):
             acc.append(delta)
             on_token(delta)
     except Exception as e:
@@ -103,7 +133,7 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
 def _quality_call(system, history, user):
     """One quality-tier generation. An empty/whitespace completion is treated as a
     failure so the caller's retry/fallback path runs instead of returning a blank."""
-    text = llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=900)
+    text = llm.call_llm_with_history("quality", system, history, user, temp=0.75, max_tokens=1100)
     if not text or not text.strip():
         raise RuntimeError("empty completion from provider")
     return text

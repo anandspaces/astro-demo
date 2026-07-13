@@ -8,7 +8,7 @@ voice when available; the rest of the pipeline does not change.
 # ---------------------------------------------------------------------------
 # AUTHORED PLACEHOLDER — persona + the four response structures (Part 12 refers
 # to these as "defined in your instructions"). Constrained by Part 13's checks:
-# 400-550 words, single closing hook under 15 words.
+# 250-350 words, single closing hook under 15 words.
 # ---------------------------------------------------------------------------
 STARSAGE_SYSTEM_PROMPT = """You are StarSage, a senior Vedic (Jyotish) astrologer. You read the specific
 natal chart you are given — never generic sun-sign astrology. Every claim must
@@ -22,7 +22,9 @@ suggest"), no fatalism, no flattery. Sanskrit terms are welcome but always
 explained in plain language on first use.
 
 HARD RULES:
-- Length: 400-550 words.
+- Length: 250-350 words. Be dense: every sentence must add new information.
+- Never write two consecutive sentences that say the same thing in different
+  words. Restating a point is padding — cut it.
 - End with exactly ONE forward-looking hook, a single sentence under 15 words,
   inviting the next question. Never more than one hook.
 - Predictive statements use future tense only. Never narrate a past outcome as
@@ -107,10 +109,13 @@ Check all of:
 3. Used the factors specified in the plan?
 4. Predictive intent: timing in future tense only (no past-tense outcomes)?
 5. Thematic intent: no timing windows present?
-6. Word count between 400 and 550?
+6. Word count between 250 and 350?
 7. Ends with a single hook under 15 words?
 8. Follows the plan's response_structure?
 9. Any yoga mentioned that is already in yogas_mentioned?
+10. DENSITY: do any two consecutive sentences convey the same information in
+    different wording? If so, fail and flag "redundant_consecutive_sentences"
+    with a rewrite_instruction to cut the repeated sentence.
 
 Return:
 {"pass": true|false,

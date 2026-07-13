@@ -146,13 +146,18 @@ def get_session_state(session_id):
 
 
 def update_session_state(session_id, planner_json):
+    """Persist last_mechanism/domain/insight_axis for the session. Returns True on a
+    real write, False if the session row is missing (a silent no-op the caller must
+    log — a dropped write here breaks mechanism rotation on every later turn)."""
     with Session.begin() as s:
         row = s.get(UserSession, session_id)
-        if row:
-            row.last_mechanism = planner_json.get("mechanism")
-            row.last_domain = planner_json.get("domain")
-            row.last_insight_axis = planner_json.get("insight_axis")
-            row.last_active = now()
+        if not row:
+            return False
+        row.last_mechanism = planner_json.get("mechanism")
+        row.last_domain = planner_json.get("domain")
+        row.last_insight_axis = planner_json.get("insight_axis")
+        row.last_active = now()
+        return True
 
 
 def get_interaction_count(session_id):

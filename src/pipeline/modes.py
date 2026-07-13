@@ -2,6 +2,7 @@
 
 Depends on the `db` package (store + ledger) and the `astro` engine (transits).
 """
+import logging
 from datetime import datetime
 
 from astro.transits import calculate_timing_confidence, get_transits_for_dasha_window
@@ -15,6 +16,20 @@ from .chart_map import get_chart_slice, merge_chart_slices
 from .classify import classify_domain, classify_query_type
 from .prompts import STARSAGE_SYSTEM_PROMPT
 from . import llm
+
+log = logging.getLogger("starsage.modes")
+
+
+def _persist_session_state(session_id, planner_json):
+    """Write session rotation state, catching+logging silent write failures (a dropped
+    write here breaks mechanism rotation on every later turn — priority fix)."""
+    try:
+        if not store.update_session_state(session_id, planner_json):
+            log.error("session-state write no-op for session=%s (row missing?); "
+                      "last_mechanism NOT persisted", session_id)
+    except Exception as e:
+        log.error("session-state write FAILED for session=%s: %s: %s",
+                  session_id, type(e).__name__, e, exc_info=True)
 
 
 def _attach_future_transits(planner_json, chart):
@@ -92,7 +107,7 @@ def handle_affirmation(user_id, session_id, user_message, chart):
     else:
         user = (f"The user affirmed with: \"{user_message}\". Address this continuation cue directly and "
                 f"immediately: {cue}. Do not reintroduce context. Pick up from where the last response ended.")
-        response = llm.call_llm_with_history("quality", STARSAGE_SYSTEM_PROMPT, history, user, temp=0.75, max_tokens=900)
+        response = llm.call_llm_with_history("quality", STARSAGE_SYSTEM_PROMPT, history, user, temp=0.75, max_tokens=1100)
 
     store.save_turn(session_id, user_id, "user", user_message, domain)
     store.save_turn(session_id, user_id, "assistant", response, domain)
@@ -153,7 +168,7 @@ def _generate_and_finalise(user_id, session_id, user_message, chart_slice, plann
     update_ledger(user_id, primary_domain, planner_json, critic_json)
     if secondary_domain:
         update_ledger(user_id, secondary_domain, planner_json, critic_json)
-    store.update_session_state(session_id, planner_json)
+    _persist_session_state(session_id, planner_json)
     store.increment_interaction_count(session_id)
     store.save_turn(session_id, user_id, "user", user_message, primary_domain, query_type=query_type)
     store.save_turn(session_id, user_id, "assistant", response, primary_domain, planner_json.get("mechanism"))

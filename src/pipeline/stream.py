@@ -1,9 +1,16 @@
 """Streaming router for the web UI. Emits pipeline-stage + token events.
 
-Uses the Part 16 async model: stream the generator draft immediately, run the
-Critic afterwards (for the ledger angle, deterministic gate only — no same-turn
-rewrite), so the user sees text appear live instead of waiting for the full
-plan → generate → critique → maybe-retry cycle.
+SYNCHRONOUS CRITIC (priority fix, 2026-07 — reverted from the Part 16 async model).
+The main reading path now runs the full quality gate BEFORE any text reaches the
+user:  Planner → Generator (full draft, not streamed) → Critic → maybe one rewrite
+→ only then stream the vetted text token-by-token. This costs the user some
+time-to-first-token, but guarantees they never see a broken/truncated draft that
+the Critic would have caught (the old async path streamed the draft first and
+critiqued it after the user had already read it).
+
+DO NOT revert to the async "stream-then-critique" model until response quality is
+stable. When reverting, restore stream_generator() here and drop the _emit_text
+replay below.
 
 on_event(kind, data): kind in {"meta","stage","token","done","error"}.
   stage payloads: {"stage": "classifying|planning|writing|reviewing", "detail": str}
@@ -45,9 +52,30 @@ def _attach_future_transits(planner_json, chart):
     return planner_json
 
 
+def _emit_text(text, on_event):
+    """Replay already-finalised text to the client as token events, so the UI keeps
+    its streaming animation even though the draft was generated synchronously."""
+    words = text.split(" ")
+    for i in range(0, len(words), 3):
+        on_event("token", {"text": " ".join(words[i:i + 3]) + " "})
+
+
+def _persist_session_state(session_id, planner_json):
+    """Write last_mechanism/domain/axis. A silent failure here corrupts rotation on
+    every subsequent turn, so failures are caught and logged loudly (priority fix)."""
+    try:
+        ok = store.update_session_state(session_id, planner_json)
+        if not ok:
+            log.error("session-state write no-op for session=%s (row missing?); "
+                      "last_mechanism NOT persisted — mechanism rotation will break", session_id)
+    except Exception as e:
+        log.error("session-state write FAILED for session=%s: %s: %s",
+                  session_id, type(e).__name__, e, exc_info=True)
+
+
 def _stream_reading(user_id, session_id, message, chart, on_event, *, primary, secondary,
                     query_type, forced_domain=None):
-    state = store.get_session_state(session_id)
+    state = store.get_session_state(session_id)     # read fresh from DB every turn (no cache)
     domain = forced_domain or primary
     ledger = get_or_create_ledger(user_id, domain)
     chart_slice = get_chart_slice(chart, domain)
@@ -67,17 +95,27 @@ def _stream_reading(user_id, session_id, message, chart, on_event, *, primary, s
                       "intent": planner_json.get("intent"),
                       "timing_windows": planner_json.get("timing_windows", [])})
 
+    # SYNCHRONOUS: generate the full draft WITHOUT streaming it to the user yet.
     on_event("stage", {"stage": "writing", "detail": f"{planner_json.get('mechanism')} · {domain}"})
-    response = gen_mod.stream_generator(message, chart_slice, planner_json, history,
-                                        lambda d: on_event("token", {"text": d}))
+    response = gen_mod.run_generator(message, chart_slice, planner_json, history)
 
+    # Critic runs BEFORE the user sees anything; one same-turn rewrite on failure.
     on_event("stage", {"stage": "reviewing", "detail": "grounding & quality check"})
     critic_json = critic_mod.run_critic(response, planner_json, ledger, chart_slice)
+    if not critic_json.get("pass", True):
+        response = gen_mod.run_generator(message, chart_slice, planner_json, history,
+                                         rewrite_instruction=critic_json.get("rewrite_instruction"))
+
+    # P1.2: persist last_mechanism immediately after generation, BEFORE any text is
+    # returned to the user, so the next turn's Planner reads the correct prior mechanism.
+    _persist_session_state(session_id, planner_json)
+
+    # Only now stream the vetted text to the client.
+    _emit_text(response, on_event)
 
     update_ledger(user_id, domain, planner_json, critic_json)
     if secondary and not forced_domain:
         update_ledger(user_id, secondary, planner_json, critic_json)
-    store.update_session_state(session_id, planner_json)
     store.increment_interaction_count(session_id)
     store.save_turn(session_id, user_id, "user", message, domain, query_type=query_type)
     store.save_turn(session_id, user_id, "assistant", response, domain, planner_json.get("mechanism"))
@@ -104,7 +142,7 @@ def _stream_affirmation(user_id, session_id, message, chart, on_event):
                 f"immediately: {cue}. Do not reintroduce context. Pick up from where the last response ended.")
         acc = []
         try:
-            for delta in llm.stream_llm("quality", STARSAGE_SYSTEM_PROMPT, history, user, 0.75, 900):
+            for delta in llm.stream_llm("quality", STARSAGE_SYSTEM_PROMPT, history, user, 0.75, 1100):
                 acc.append(delta)
                 on_event("token", {"text": delta})
             text = "".join(acc)
