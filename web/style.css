@@ -183,6 +183,25 @@ code { background: rgba(0,0,0,.35); padding: 1px 6px; border-radius: 5px; font-s
 }
 @keyframes modin { from { opacity: 0; transform: translateY(16px) scale(.97); } }
 
+/* Prompt editor — wide modal + code textarea */
+.modal.wide { max-width: 820px; }
+.promptsel {
+  height: 34px; border-radius: 9px; margin-left: 10px; padding: 0 10px;
+  background: rgba(6,7,13,.6); color: var(--ink); border: 1px solid var(--edge);
+  font-size: 13px; max-width: 100%;
+}
+.fieldlabel #promptBadge { margin-left: 10px; text-transform: none; letter-spacing: 0; }
+#promptNote { margin-top: 8px; }
+.prompttext {
+  width: 100%; min-height: 340px; max-height: 56vh; margin-top: 14px; resize: vertical;
+  padding: 14px; border-radius: 12px; border: 1px solid var(--edge);
+  background: rgba(6,7,13,.6); color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55;
+  white-space: pre; overflow-wrap: normal; overflow-x: auto; tab-size: 2;
+}
+.prompttext:focus { outline: none; border-color: var(--accent, #8b7dff); }
+.footbtns { display: flex; gap: 10px; align-items: center; }
+
 .modalhead { display: flex; align-items: center; gap: 12px; }
 .modalhead h2 { margin: 0; font-size: 17px; letter-spacing: -.2px; }
 .modalhead h2 .num { width: 30px; height: 30px; border-radius: 9px; font-size: 15px; }

@@ -13,6 +13,7 @@
     <div class="brand"><span class="logo">✦</span> StarSage <span class="sub">test console</span></div>
     <div class="headright">
       <div id="provider" class="pill"><span class="dot"></span> connecting…</div>
+      <button id="openPrompts" class="ghost sm">✎ Prompts</button>
       <button id="openSettings" class="ghost sm">⚙ Model &amp; keys</button>
     </div>
   </header>
@@ -96,6 +97,40 @@
       <div class="modalfoot">
         <div id="settingsOut" class="out"></div>
         <button id="saveSettings" class="primary"><span>Save</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= PROMPT EDITOR POPUP ======================= -->
+  <div id="promptsModal" class="modalwrap" hidden>
+    <div class="modal card wide">
+      <div class="modalhead">
+        <h2 style="margin:0"><span class="num">✎</span> Pipeline prompts</h2>
+        <button id="closePrompts" class="iconbtn" aria-label="Close">✕</button>
+      </div>
+      <p class="muted small">Edit any stage's prompt and save — changes take effect on the
+        next reading, no restart. Edits are stored in the database; “Reset” restores the built-in
+        default. The Planner/Critic prompts must keep returning their JSON shape, and the preamble
+        must keep its <code>{placeholders}</code>.</p>
+
+      <div class="modalbody">
+        <div class="field">
+          <div class="fieldlabel">Prompt
+            <select id="promptSelect" class="promptsel"></select>
+            <span id="promptBadge" class="kstate" hidden></span>
+          </div>
+          <div id="promptNote" class="muted small"></div>
+        </div>
+        <textarea id="promptText" class="prompttext" spellcheck="false" autocomplete="off"
+                  placeholder="Loading…"></textarea>
+      </div>
+
+      <div class="modalfoot">
+        <div id="promptsOut" class="out"></div>
+        <div class="footbtns">
+          <button id="resetPrompt" class="ghost sm">↺ Reset to default</button>
+          <button id="savePrompt" class="primary"><span>Save prompt</span></button>
+        </div>
       </div>
     </div>
   </div>

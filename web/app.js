@@ -375,6 +375,94 @@ async function validateStoredUser() {
   } catch { /* offline — leave as is */ }
 }
 
+/* ===================== PROMPT EDITOR POPUP ===================== */
+let promptsData = [];          // [{name,label,note,content,default,overridden}]
+let activePrompt = "";         // currently selected prompt name
+let promptBaseline = "";       // content as last loaded/saved, for unsaved-edit detection
+
+const promptByName = (n) => promptsData.find(p => p.name === n);
+const promptDirty = () => $("promptText").value !== promptBaseline;
+
+async function openPrompts() {
+  try {
+    const r = await api("/api/prompts");
+    promptsData = r.prompts || [];
+    $("promptSelect").innerHTML = promptsData
+      .map(p => `<option value="${p.name}">${esc(p.label)}</option>`).join("");
+    activePrompt = promptsData[0]?.name || "";
+    $("promptSelect").value = activePrompt;
+    renderPrompt();
+    $("promptsModal").hidden = false;
+  } catch (e) { alert("Could not load prompts: " + e.message); }
+}
+function closePrompts() {
+  if (promptDirty() && !confirm("Discard unsaved changes to this prompt?")) return;
+  $("promptsModal").hidden = true;
+  $("promptsOut").innerHTML = "";
+}
+function renderPrompt() {
+  const p = promptByName(activePrompt);
+  if (!p) return;
+  $("promptText").value = p.content;
+  promptBaseline = p.content;
+  $("promptNote").textContent = p.note || "";
+  const badge = $("promptBadge");
+  badge.hidden = false;
+  const overridden = p.overridden && p.content !== p.default;
+  badge.textContent = overridden ? "overridden" : "default";
+  badge.className = "kstate " + (overridden ? "ok" : "muted");
+  $("resetPrompt").disabled = !p.overridden;
+  $("promptsOut").innerHTML = "";
+}
+
+$("openPrompts").onclick = openPrompts;
+$("closePrompts").onclick = closePrompts;
+$("promptsModal").onclick = (e) => { if (e.target === $("promptsModal")) closePrompts(); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("promptsModal").hidden) closePrompts(); });
+
+$("promptSelect").onchange = (e) => {
+  if (promptDirty() && !confirm("Discard unsaved changes to this prompt?")) {
+    e.target.value = activePrompt; return;
+  }
+  activePrompt = e.target.value; renderPrompt();
+};
+$("promptText").addEventListener("input", () => {
+  const p = promptByName(activePrompt);
+  $("promptBadge").textContent = promptDirty() ? "unsaved" : (p?.overridden ? "overridden" : "default");
+  $("promptBadge").className = "kstate " + (promptDirty() ? "warn" : (p?.overridden ? "ok" : "muted"));
+});
+
+$("savePrompt").onclick = async () => {
+  const btn = $("savePrompt"); btn.disabled = true;
+  const out = $("promptsOut"); out.innerHTML = "";
+  try {
+    const r = await api("/api/prompts", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: activePrompt, content: $("promptText").value }),
+    });
+    promptsData = r.prompts || promptsData;
+    renderPrompt();
+    out.innerHTML = `<div class="ok">✓ saved — live on the next reading</div>`;
+    setTimeout(() => { out.innerHTML = ""; }, 2500);
+  } catch (e) { out.innerHTML = `<div class="err">✗ ${esc(e.message)}</div>`; }
+  btn.disabled = false;
+};
+
+$("resetPrompt").onclick = async () => {
+  if (!confirm("Reset this prompt to the built-in default? Your edits will be removed.")) return;
+  const out = $("promptsOut"); out.innerHTML = "";
+  try {
+    const r = await api("/api/prompts/reset", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: activePrompt }),
+    });
+    promptsData = r.prompts || promptsData;
+    renderPrompt();
+    out.innerHTML = `<div class="ok">✓ reset to default</div>`;
+    setTimeout(() => { out.innerHTML = ""; }, 2500);
+  } catch (e) { out.innerHTML = `<div class="err">✗ ${esc(e.message)}</div>`; }
+};
+
 setUser(currentUser);
 validateStoredUser();
 loadProvider();
