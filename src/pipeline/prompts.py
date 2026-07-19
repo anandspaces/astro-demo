@@ -117,34 +117,67 @@ Check all of:
     different wording? If so, fail and flag "redundant_consecutive_sentences"
     with a rewrite_instruction to cut the repeated sentence.
 
+Severity guide — the pipeline rewrites the response only for critical/moderate:
+  critical = the response is wrong or ungrounded (invented chart factors, past-tense
+             prediction, ignores the plan's mechanism/structure).
+  moderate = materially weakens the reading (repeats a prior angle, misses the plan's
+             factors, redundant consecutive sentences, wrong length).
+  minor    = a wording nit that does not justify regenerating the response.
+
 Return:
 {"pass": true|false,
- "issues": ["..."],
+ "issues": [{"issue": "...", "severity": "critical|moderate|minor"}],
  "rewrite_instruction": "instruction if rewrite needed, else null",
  "angle_summary": "one sentence: what angle this response actually covered",
  "prediction_summary": "one sentence summary of any prediction, else null"}"""
 
 
-PIPELINE_PREAMBLE = """PIPELINE INSTRUCTION (read and follow before anything else):
+# NOTE ON PLACEMENT (critical fix, 2026-07): this preamble is appended to the
+# SYSTEM prompt, never to the user message. It used to be prepended to the user
+# turn, which made the Generator read the plan as if the *user* had typed it —
+# models treat "ignore your instructions, follow this plan" from a user turn as a
+# jailbreak attempt and quietly disregard it. The result was a Generator writing
+# with no mechanism, axis, depth or closing guidance at all. Keep it system-side.
+# The wording below is therefore addressed to the model as its own instruction,
+# and explicitly separates the plan (trusted) from the user message (untrusted).
+PIPELINE_PREAMBLE = """READING PLAN FOR THIS TURN
 
-A reading plan has been prepared for this query. Follow it exactly.
-Do not override it with your own domain, mechanism, or intent assessment.
+The following plan was produced by the StarSage pipeline, not by the user. It is
+part of your instructions and is authoritative: execute it exactly. Do not
+replace its domain, mechanism, axis or intent with your own assessment, do not
+restate the plan, and do not mention that a plan exists. The user's message is
+supplied separately — that alone is the question you answer.
 
 Query type:         {query_type}
 Response structure: {response_structure}
+Intent:             {intent}
+Domain:             {domain}
+Secondary domain:   {secondary_domain}
+Primary house:      {primary_house}
+Secondary houses:   {secondary_houses}
 Mechanism:          {mechanism}
+Nakshatra target:   {nakshatra_target}
+Karaka:             {karaka}
 Insight axis:       {insight_axis}
-Factors to use:     {factors_to_use}
-Factors to avoid:   {factors_to_avoid}
-Yoga to surface:    {yoga_used}
+Depth level:        {depth_level}
+Divisional chart:   {divisional_chart}
+Closing type:       {closing_type}
 
-SESSION STATE:
+FACTORS TO USE — build the reading on these, name them concretely:
+{factors_to_use}
+
+FACTORS TO AVOID — do not raise these this turn:
+{factors_to_avoid}
+{yoga_line}{timing_block}{forecast_domains_line}{flags_block}{depth_reminder}{chain_reminder}
+SESSION STATE — the previous turn used these; rotate away from them:
 Previous mechanism:    {last_mechanism}
 Previous insight axis: {last_insight_axis}
 Previous domain:       {last_domain}
+Previous closing type: {last_closing_type}
 
-Your job is to execute the plan with depth and quality — not to replan.
-Follow the response structure for the query type as defined in your instructions.
+CLOSING: finish with a single {closing_type}, one sentence, under 15 words.
+
+Execute this plan with depth and specificity. Re-planning is not your job.
 """
 
 
@@ -163,7 +196,8 @@ PROMPT_META = {
     "critic":   {"label": "Critic — quality-review prompt",
                  "note": "Judges the draft. Must return the JSON shape shown."},
     "preamble": {"label": "Generator — per-turn pipeline preamble",
-                 "note": "Injected before each reading. MUST keep the {placeholders} intact or it falls back to default."},
+                 "note": "Appended to the SYSTEM prompt on every reading (not to the user message). "
+                         "MUST keep the {placeholders} intact or it falls back to default."},
 }
 
 _DEFAULTS = {
@@ -173,10 +207,14 @@ _DEFAULTS = {
     "preamble": PIPELINE_PREAMBLE,
 }
 
-# Placeholders the preamble template must contain; if an override drops any, we
-# reject it at read time and fall back to the default so .format() cannot crash.
+# Core placeholders an override must keep. Deliberately lenient: only the fields
+# that carry the plan itself, so an override written against the older, smaller
+# template still validates and keeps working (the generator supplies a superset of
+# fields, and str.format ignores the ones a template doesn't reference). Dropping
+# one of these means the plan would not reach the Generator at all — that is the
+# only case worth rejecting an override for.
 _PREAMBLE_FIELDS = ("query_type", "response_structure", "mechanism", "insight_axis",
-                    "factors_to_use", "factors_to_avoid", "yoga_used",
+                    "factors_to_use", "factors_to_avoid",
                     "last_mechanism", "last_insight_axis", "last_domain")
 
 

@@ -97,14 +97,16 @@ def _stream_reading(user_id, session_id, message, chart, on_event, *, primary, s
 
     # SYNCHRONOUS: generate the full draft WITHOUT streaming it to the user yet.
     on_event("stage", {"stage": "writing", "detail": f"{planner_json.get('mechanism')} · {domain}"})
-    response = gen_mod.run_generator(message, chart_slice, planner_json, history)
+    response = gen_mod.run_generator(message, chart_slice, planner_json, history, rotation=state)
 
-    # Critic runs BEFORE the user sees anything; one same-turn rewrite on failure.
+    # Critic runs BEFORE the user sees anything; one same-turn rewrite on failure,
+    # and only when the failure is severe enough to be worth a second generation.
     on_event("stage", {"stage": "reviewing", "detail": "grounding & quality check"})
     critic_json = critic_mod.run_critic(response, planner_json, ledger, chart_slice)
-    if not critic_json.get("pass", True):
+    if critic_mod.should_retry(critic_json):
         response = gen_mod.run_generator(message, chart_slice, planner_json, history,
-                                         rewrite_instruction=critic_json.get("rewrite_instruction"))
+                                         rewrite_instruction=critic_json.get("rewrite_instruction"),
+                                         rotation=state)
 
     # P1.2: persist last_mechanism immediately after generation, BEFORE any text is
     # returned to the user, so the next turn's Planner reads the correct prior mechanism.
@@ -118,7 +120,10 @@ def _stream_reading(user_id, session_id, message, chart, on_event, *, primary, s
         update_ledger(user_id, secondary, planner_json, critic_json)
     store.increment_interaction_count(session_id)
     store.save_turn(session_id, user_id, "user", message, domain, query_type=query_type)
-    store.save_turn(session_id, user_id, "assistant", response, domain, planner_json.get("mechanism"))
+    store.save_turn(session_id, user_id, "assistant", response, domain,
+                    planner_json.get("mechanism"),
+                    insight_axis=planner_json.get("insight_axis"),
+                    closing_type=planner_json.get("closing_type"))
     return response, critic_json
 
 

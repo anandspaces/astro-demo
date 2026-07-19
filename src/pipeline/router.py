@@ -7,7 +7,7 @@ from .classify import classify_query_type
 
 def route(user_id, session_id, user_message):
     """Route one user message to the correct mode and return the response text."""
-    store.get_or_create_session(session_id, user_id)     # applies 30-min expiry reset
+    store.get_or_create_session(session_id, user_id)     # create-if-absent; no idle expiry
     chart = store.get_user_chart(user_id)
     if chart is None:
         raise ValueError(f"No chart stored for user {user_id}. Build and save it first.")

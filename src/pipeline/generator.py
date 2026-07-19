@@ -43,24 +43,113 @@ def _format_timing_support(planner_json):
     return "\n".join(lines)
 
 
-def build_generator_input(user_message, chart_slice, planner_json, minimal=False):
-    chart_txt = format_chart_minimal(chart_slice) if minimal else format_chart_for_generator(chart_slice)
-    fields = dict(
-        query_type=planner_json.get("query_type"),
-        response_structure=planner_json.get("response_structure"),
-        mechanism=planner_json.get("mechanism"),
-        insight_axis=planner_json.get("insight_axis"),
-        factors_to_use="; ".join(planner_json.get("factors_to_use", []) or []) or "(planner did not specify)",
-        factors_to_avoid="; ".join(planner_json.get("factors_to_avoid", []) or []) or "(none)",
-        yoga_used=planner_json.get("yoga_used") or "none",
-        last_mechanism="(none)", last_insight_axis="(none)", last_domain="(none)",
+def _bullets(items, empty="(none specified)"):
+    """One item per line, so a long factor list stays readable in the preamble."""
+    items = [str(i) for i in (items or []) if i]
+    return "\n".join(f"- {i}" for i in items) if items else empty
+
+
+def _preamble_fields(planner_json, rotation):
+    """Every placeholder the preamble template may reference. Conditional blocks
+    render as "" when they don't apply, so one template covers all query types.
+    A block that is present ends with a newline and never starts with one."""
+    p, rot = planner_json, (rotation or {})
+    intent = p.get("intent")
+    mechanism = p.get("mechanism")
+    depth = p.get("depth_level") or 1
+
+    yoga = p.get("yoga_used")
+    yoga_line = (f"YOGA TO SURFACE: {yoga} — name it, then explain how it forms "
+                 f"from the placements in the chart data.\n") if yoga else ""
+
+    timing = _format_timing_support(p) if intent in ("predictive", "mixed") else ""
+    timing_block = f"{timing.strip()}\n" if timing.strip() else ""
+
+    forecast_domains = p.get("forecast_domains") or []
+    forecast_domains_line = (
+        f"FORECAST DOMAINS (cover each, anchored to its own chart factor): "
+        f"{', '.join(str(d) for d in forecast_domains)}\n"
+    ) if p.get("query_type") == "forecast" and forecast_domains else ""
+
+    flags = []
+    if p.get("identity_mirror"):
+        flags.append("- IDENTITY MIRROR: reflect who this person is structurally, "
+                     "not merely what happens to them.")
+    if p.get("comparative_analysis"):
+        flags.append("- COMPARATIVE: contrast the two sides of this question explicitly, "
+                     "and say which the chart favours.")
+    flags_block = ("\n".join(flags) + "\n") if flags else ""
+
+    depth_reminder = (
+        "DEPTH: this is a follow-up on ground already covered. Go a layer deeper than "
+        "an introductory reading — assume the basics are known and give the mechanism "
+        "underneath them.\n"
+    ) if depth and int(depth) >= 2 else ""
+
+    chain_reminder = (
+        "CHAIN THE LOGIC: state the placement, then what that placement does, then how "
+        "it shows up in this person's life. Do not stop at naming the placement.\n"
+    ) if mechanism in ("planets_in_house", "house_lord_placement") else ""
+
+    return dict(
+        query_type=p.get("query_type"),
+        response_structure=p.get("response_structure"),
+        intent=intent,
+        domain=p.get("domain"),
+        secondary_domain=p.get("secondary_domain") or "(none)",
+        primary_house=p.get("primary_house"),
+        secondary_houses=", ".join(str(h) for h in (p.get("secondary_houses") or [])) or "(none)",
+        mechanism=mechanism,
+        nakshatra_target=p.get("nakshatra_target") or "(none)",
+        karaka=p.get("karaka") or "(none)",
+        insight_axis=p.get("insight_axis"),
+        depth_level=depth,
+        divisional_chart=p.get("divisional_chart") or "(none)",
+        closing_type=p.get("closing_type") or "hook",
+        factors_to_use=_bullets(p.get("factors_to_use"), "(planner did not specify)"),
+        factors_to_avoid=_bullets(p.get("factors_to_avoid"), "(none)"),
+        yoga_used=yoga or "none",          # legacy field: older overrides reference it
+        yoga_line=yoga_line,
+        timing_block=timing_block,
+        forecast_domains_line=forecast_domains_line,
+        flags_block=flags_block,
+        depth_reminder=depth_reminder,
+        chain_reminder=chain_reminder,
+        last_mechanism=rot.get("last_mechanism") or "(none)",
+        last_insight_axis=rot.get("last_insight_axis") or "(none)",
+        last_domain=rot.get("last_domain") or "(none)",
+        last_closing_type=rot.get("last_closing_type") or "(none)",
     )
+
+
+def build_preamble(planner_json, rotation=None):
+    """Render the per-turn plan preamble. A broken override (references a field we
+    don't supply) falls back to the shipped default rather than failing the turn."""
+    fields = _preamble_fields(planner_json, rotation)
     try:
-        preamble = prompts.get_prompt("preamble").format(**fields)
-    except (KeyError, IndexError, ValueError):
-        preamble = prompts.default_prompt("preamble").format(**fields)   # broken override → default
-    timing_txt = _format_timing_support(planner_json)
-    return f"{preamble}\n\n{chart_txt}{timing_txt}\n\nUSER QUESTION: {user_message}"
+        return prompts.get_prompt("preamble").format(**fields)
+    except (KeyError, IndexError, ValueError) as e:
+        log.warning("preamble override failed to render (%s: %s) — using default", type(e).__name__, e)
+        return prompts.default_prompt("preamble").format(**fields)
+
+
+def build_generator_payload(user_message, chart_slice, planner_json, rotation=None,
+                            minimal=False, rewrite_instruction=None):
+    """Return (system, user).
+
+    CRITICAL (2026-07): the plan preamble goes in the SYSTEM message, never in the
+    user message. Sent as a user turn it reads as the *user* instructing the model
+    to follow a plan and override its own instructions — which models treat as an
+    injection attempt and ignore, leaving the Generator with no mechanism, axis,
+    depth or closing guidance. The user message now carries only chart data and the
+    actual question."""
+    system = prompts.get_prompt("system") + "\n\n" + build_preamble(planner_json, rotation)
+    if rewrite_instruction:
+        # Critic feedback is pipeline-side too — same reasoning as the preamble.
+        system += f"\nREVISION REQUIRED ON THIS ATTEMPT: {rewrite_instruction}\n"
+    chart_txt = format_chart_minimal(chart_slice) if minimal else format_chart_for_generator(chart_slice)
+    user = f"{chart_txt}\n\nUSER QUESTION: {user_message}"
+    return system, user
 
 
 def _mock_reading(user_message, chart_slice, planner_json):
@@ -100,7 +189,7 @@ def _mock_chunks(text):
         yield " ".join(words[i:i + 2]) + " "
 
 
-def stream_generator(user_message, chart_slice, planner_json, history, on_token):
+def stream_generator(user_message, chart_slice, planner_json, history, on_token, rotation=None):
     """Stream the reading, calling on_token(delta) per chunk. Returns full text."""
     if llm.is_mock():
         full = _mock_reading(user_message, chart_slice, planner_json)
@@ -108,12 +197,12 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
             on_token(chunk)
         return full
 
-    user = build_generator_input(user_message, chart_slice, planner_json)
-    system = prompts.get_prompt("system")
+    system, user = build_generator_payload(user_message, chart_slice, planner_json, rotation)
     parts_tokens = _estimate_tokens(system) + _estimate_tokens(user) + sum(_estimate_tokens(h["content"]) for h in history)
     if parts_tokens > 7000:
         history = history[-4:]
-        user = build_generator_input(user_message, chart_slice, planner_json, minimal=True)
+        system, user = build_generator_payload(user_message, chart_slice, planner_json,
+                                               rotation, minimal=True)
 
     acc = []
     try:
@@ -129,7 +218,7 @@ def stream_generator(user_message, chart_slice, planner_json, history, on_token)
 
     # Nothing usable streamed → clean non-streamed fallback (has its own retry/fallback).
     # We only reach here when no tokens were emitted, so there is no double-emit.
-    text = run_generator(user_message, chart_slice, planner_json, history)
+    text = run_generator(user_message, chart_slice, planner_json, history, rotation=rotation)
     on_token(text)
     return text
 
@@ -143,20 +232,19 @@ def _quality_call(system, history, user):
     return text
 
 
-def run_generator(user_message, chart_slice, planner_json, history, rewrite_instruction=None):
+def run_generator(user_message, chart_slice, planner_json, history, rewrite_instruction=None,
+                  rotation=None):
     if llm.is_mock():
         return _mock_reading(user_message, chart_slice, planner_json)
 
-    user = build_generator_input(user_message, chart_slice, planner_json)
-    if rewrite_instruction:
-        user += f"\n\nREVISION REQUIRED: {rewrite_instruction}"
-
-    system = prompts.get_prompt("system")
+    system, user = build_generator_payload(user_message, chart_slice, planner_json, rotation,
+                                           rewrite_instruction=rewrite_instruction)
     # Token pressure -> trim history to 4 turns and use minimal chart (Part 14).
     parts_tokens = _estimate_tokens(system) + _estimate_tokens(user) + sum(_estimate_tokens(h["content"]) for h in history)
     if parts_tokens > 7000:
         history = history[-4:]
-        user = build_generator_input(user_message, chart_slice, planner_json, minimal=True)
+        system, user = build_generator_payload(user_message, chart_slice, planner_json, rotation,
+                                               minimal=True, rewrite_instruction=rewrite_instruction)
 
     provider, model = llm.resolve_provider(), llm.model_for("quality")
     try:

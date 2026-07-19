@@ -127,7 +127,7 @@ def handle_forecast(user_id, session_id, user_message, chart):
     )
     planner_json = _attach_future_transits(planner_json, chart)
     return _generate_and_finalise(user_id, session_id, user_message, chart_slice, planner_json,
-                                  history, ledger, "forecast", None)
+                                  history, ledger, "forecast", None, rotation=state)
 
 
 # ---- Mode 4: Standard -----------------------------------------------------
@@ -151,17 +151,20 @@ def handle_standard(user_id, session_id, user_message, chart):
         planner_json = _attach_future_transits(planner_json, chart)
 
     return _generate_and_finalise(user_id, session_id, user_message, chart_slice, planner_json,
-                                  history, ledger, primary, secondary, query_type)
+                                  history, ledger, primary, secondary, query_type, rotation=state)
 
 
 def _generate_and_finalise(user_id, session_id, user_message, chart_slice, planner_json,
-                           history, ledger, primary_domain, secondary_domain, query_type=None):
-    response = gen_mod.run_generator(user_message, chart_slice, planner_json, history)
+                           history, ledger, primary_domain, secondary_domain, query_type=None,
+                           rotation=None):
+    response = gen_mod.run_generator(user_message, chart_slice, planner_json, history,
+                                     rotation=rotation)
     critic_json = critic_mod.run_critic(response, planner_json, ledger, chart_slice)
 
-    if not critic_json.get("pass", True):
+    if critic_mod.should_retry(critic_json):
         retry = gen_mod.run_generator(user_message, chart_slice, planner_json, history,
-                                      rewrite_instruction=critic_json.get("rewrite_instruction"))
+                                      rewrite_instruction=critic_json.get("rewrite_instruction"),
+                                      rotation=rotation)
         response = retry            # always pass through after one retry
 
     update_ledger(user_id, primary_domain, planner_json, critic_json)
@@ -170,5 +173,8 @@ def _generate_and_finalise(user_id, session_id, user_message, chart_slice, plann
     _persist_session_state(session_id, planner_json)
     store.increment_interaction_count(session_id)
     store.save_turn(session_id, user_id, "user", user_message, primary_domain, query_type=query_type)
-    store.save_turn(session_id, user_id, "assistant", response, primary_domain, planner_json.get("mechanism"))
+    store.save_turn(session_id, user_id, "assistant", response, primary_domain,
+                    planner_json.get("mechanism"),
+                    insight_axis=planner_json.get("insight_axis"),
+                    closing_type=planner_json.get("closing_type"))
     return response

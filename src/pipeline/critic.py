@@ -5,8 +5,50 @@ the LLM step is skipped and the verdict comes from the deterministic gate plus a
 heuristic angle summary.
 """
 import json
+import logging
 
 from . import llm, precheck, prompts
+
+log = logging.getLogger("starsage.critic")
+
+# A failed review triggers at most one same-turn rewrite. Only these severities are
+# worth spending that second generation on; a "minor" nit is not (the rewrite costs a
+# full quality-tier call and often trades one small flaw for another).
+RETRY_SEVERITIES = frozenset({"critical", "moderate"})
+
+
+def issue_text(issue):
+    """Issues arrive either as plain strings (old/mock format) or as
+    {"issue","severity"} objects (current Critic prompt). Read both."""
+    if isinstance(issue, dict):
+        return str(issue.get("issue") or issue.get("text") or issue)
+    return str(issue)
+
+
+def _severity_of(issue, severities_map):
+    if isinstance(issue, dict) and issue.get("severity"):
+        return str(issue["severity"]).strip().lower()
+    mapped = (severities_map or {}).get(issue_text(issue))
+    return str(mapped).strip().lower() if mapped else None
+
+
+def should_retry(critic_json):
+    """Whether a failed critique warrants one rewrite.
+
+    Retry when the Critic reports a critical/moderate issue. If the Critic emitted no
+    severities at all (older prompt, mock mode, or a malformed reply) we retry on any
+    failure — so behaviour is unchanged until the Critic prompt starts labelling
+    severity. Deterministic precheck issues (word count, hook length, tense, repeated
+    yoga) are hard failures and always retry-worthy."""
+    if critic_json.get("pass", True):
+        return False
+    if critic_json.get("hard_fail"):
+        return True
+    issues = critic_json.get("issues") or []
+    severities = [s for s in (_severity_of(i, critic_json.get("severities")) for i in issues) if s]
+    if not severities:
+        return True                       # no severity information → old behaviour
+    return any(s in RETRY_SEVERITIES for s in severities)
 
 
 def _heuristic_angle(planner_json):
@@ -32,6 +74,7 @@ def run_critic(response, planner_json, ledger, chart_slice):
     if llm.is_mock():
         return {
             "pass": len(hard_issues) == 0,
+            "hard_fail": bool(hard_issues),
             "issues": hard_issues,
             "rewrite_instruction": ("; ".join(hard_issues)) if hard_issues else None,
             "angle_summary": _heuristic_angle(planner_json),
@@ -56,8 +99,10 @@ def run_critic(response, planner_json, ledger, chart_slice):
 
     # Merge deterministic issues: a hard failure overrides an LLM pass.
     if hard_issues:
-        cj["issues"] = list(dict.fromkeys((cj.get("issues") or []) + hard_issues))
+        seen = {issue_text(i) for i in (cj.get("issues") or [])}
+        cj["issues"] = list(cj.get("issues") or []) + [h for h in hard_issues if h not in seen]
         cj["pass"] = False
+        cj["hard_fail"] = True            # precheck failures always earn the rewrite
         cj["rewrite_instruction"] = cj.get("rewrite_instruction") or "; ".join(hard_issues)
     cj.setdefault("angle_summary", _heuristic_angle(planner_json))
     return cj
