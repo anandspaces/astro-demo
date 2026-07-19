@@ -3,7 +3,11 @@
 Fixes: #7 forecast/general/fame now have checklists; #8 dasha_basis stores only
 the relevant window.
 """
+import logging
+
 from . import store
+
+log = logging.getLogger("starsage.ledger")
 
 MAX_LEDGER_ANGLES = 25
 MAX_PLANNER_ANGLES = 10          # Part 15: inject last 10 into the Planner
@@ -120,7 +124,37 @@ def update_ledger(user_id, domain, planner_json, critic_json):
 
     ledger["last_updated"] = store.now_iso()
     store.save_ledger(user_id, domain, ledger)
+    _verify_write(user_id, domain, ledger)
     return ledger
+
+
+def _verify_write(user_id, domain, expected):
+    """Read the ledger back after every write and confirm the angle actually landed.
+
+    The ledger is the anti-repetition memory: if a write is silently dropped the
+    Planner keeps being told the angle is unused and re-answers it, which surfaces
+    to the user as the assistant repeating itself several turns later — far from the
+    real cause. One extra read per response is cheap insurance against that."""
+    try:
+        stored = store.get_ledger_from_db(user_id, domain)
+        if not stored:
+            log.error("ledger write LOST for user=%s domain=%s — row absent after save",
+                      user_id, domain)
+            return False
+        want, got = expected["answered_angles"], stored.get("answered_angles") or []
+        if len(got) != len(want) or (want and got[-1] != want[-1]):
+            log.error("ledger write MISMATCH for user=%s domain=%s: expected %d angles "
+                      "(last=%r), read back %d (last=%r)", user_id, domain, len(want),
+                      want[-1] if want else None, len(got), got[-1] if got else None)
+            return False
+        log.info("ledger ok: user=%s domain=%s angles=%d mechanisms=%d unused_checklist=%d",
+                 user_id, domain, len(got), len(stored.get("used_mechanisms") or []),
+                 len(stored.get("unused_checklist_items") or []))
+        return True
+    except Exception as e:
+        log.error("ledger write verification FAILED for user=%s domain=%s: %s: %s",
+                  user_id, domain, type(e).__name__, e, exc_info=True)
+        return False
 
 
 def planner_view(ledger):

@@ -95,6 +95,10 @@ class SessionMessage(Base):
     domain: Mapped[str | None] = mapped_column(String)
     mechanism_used: Mapped[str | None] = mapped_column(String)
     query_type: Mapped[str | None] = mapped_column(String)
+    # Rotation state, written on assistant turns and read back by
+    # store.get_session_state so the next Planner rotates off what was actually used.
+    insight_axis: Mapped[str | None] = mapped_column(String)
+    closing_type_used: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime | None] = mapped_column(TS)
 
     __table_args__ = (Index("idx_session_messages", "session_id", "created_at"),)

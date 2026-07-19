@@ -3,6 +3,7 @@ Schema is defined in db/models.py; migrations in db/alembic.
 
 Public functions keep returning plain dicts/values so the pipeline layer is unchanged.
 """
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -14,7 +15,12 @@ from .models import (AppSettings, PromptOverride, SessionMessage, User,
 
 SETTINGS_ID = "global"   # singleton row until per-account auth lands
 
-SESSION_TIMEOUT_MIN = 30
+log = logging.getLogger("starsage.store")
+
+# How many recent assistant turns get_session_state scans for rotation state. Each
+# field takes its most recent non-null value, so a turn that doesn't set one (an
+# affirmation carries no mechanism) doesn't erase rotation for the next turn.
+ROTATION_LOOKBACK = 10
 
 
 def now():
@@ -151,7 +157,11 @@ def get_all_domain_ledgers(user_id):
 
 # ---- sessions -------------------------------------------------------------
 def get_or_create_session(session_id, user_id):
-    """Fetch a session; reset state if idle > 30 min. Never touches ledger/messages."""
+    """Fetch a session, creating it if absent. Never touches ledger/messages.
+
+    No idle expiry (removed 2026-07): a 30-minute reset wiped interaction_count and
+    rotation state, so a returning user restarted the synthesis cycle and could be
+    served the same mechanism/axis they just had. A session is a durable thread."""
     with Session.begin() as s:
         row = s.get(UserSession, session_id)
         if row is None:
@@ -159,20 +169,56 @@ def get_or_create_session(session_id, user_id):
                               last_active=now(), created_at=now())
             s.add(row)
         else:
-            idle_min = (now() - row.last_active).total_seconds() / 60
-            if idle_min > SESSION_TIMEOUT_MIN:
-                row.last_mechanism = row.last_domain = row.last_insight_axis = None
-                row.interaction_count = 0
-                row.last_active = now()
+            row.last_active = now()
         return _row(row, "session_id", "user_id", "last_mechanism", "last_domain",
                     "last_insight_axis", "interaction_count", "last_active")
 
 
+_ROTATION_COLUMNS = {
+    "last_mechanism": SessionMessage.mechanism_used,
+    "last_domain": SessionMessage.domain,
+    "last_insight_axis": SessionMessage.insight_axis,
+    "last_closing_type": SessionMessage.closing_type_used,
+}
+
+
 def get_session_state(session_id):
-    with Session() as s:
-        row = s.get(UserSession, session_id)
-        return _row(row, "session_id", "user_id", "last_mechanism", "last_domain",
-                    "last_insight_axis", "interaction_count") or {}
+    """Rotation state for the next Planner/Generator turn.
+
+    Read from the actual conversation (`session_messages`) rather than a mirrored
+    session row, so what the Planner is told to rotate away from is exactly what was
+    last written. Each field takes the most recent assistant turn that set it.
+    interaction_count stays on `user_sessions` — it is a durable tally, not rotation
+    state. Any failure here degrades to an empty state (fresh rotation) and is logged
+    loudly: silently returning stale/empty state corrupts every following turn."""
+    state = {}
+    try:
+        with Session() as s:
+            rows = s.execute(
+                select(SessionMessage.mechanism_used, SessionMessage.domain,
+                       SessionMessage.insight_axis, SessionMessage.closing_type_used)
+                .where(SessionMessage.session_id == session_id,
+                       SessionMessage.role == "assistant")
+                .order_by(SessionMessage.created_at.desc())
+                .limit(ROTATION_LOOKBACK)
+            ).all()
+            for key, col in _ROTATION_COLUMNS.items():
+                state[key] = next((v for v in (getattr(r, col.key) for r in rows) if v), None)
+            session_row = s.get(UserSession, session_id)
+            if session_row:
+                state["session_id"] = session_row.session_id
+                state["user_id"] = session_row.user_id
+                state["interaction_count"] = session_row.interaction_count
+                # Pre-F2 sessions have no per-message rotation columns; fall back to
+                # the mirrored session row so rotation survives the migration.
+                for key in ("last_mechanism", "last_domain", "last_insight_axis"):
+                    if state.get(key) is None:
+                        state[key] = getattr(session_row, key)
+    except Exception as e:
+        log.error("get_session_state FAILED for session=%s: %s: %s — rotation state lost "
+                  "for this turn", session_id, type(e).__name__, e, exc_info=True)
+        return {}
+    return state
 
 
 def update_session_state(session_id, planner_json):
@@ -205,11 +251,15 @@ def increment_interaction_count(session_id):
 
 
 # ---- messages -------------------------------------------------------------
-def save_turn(session_id, user_id, role, content, domain=None, mechanism=None, query_type=None):
+def save_turn(session_id, user_id, role, content, domain=None, mechanism=None, query_type=None,
+              insight_axis=None, closing_type=None):
+    """Persist one turn. On assistant turns pass the plan's mechanism/insight_axis/
+    closing_type — get_session_state reads rotation back out of these columns."""
     with Session.begin() as s:
         s.add(SessionMessage(id=generate_id(), session_id=session_id, user_id=user_id, role=role,
                              content=content, domain=domain, mechanism_used=mechanism,
-                             query_type=query_type, created_at=now()))
+                             query_type=query_type, insight_axis=insight_axis,
+                             closing_type_used=closing_type, created_at=now()))
 
 
 def get_session_messages(session_id):
